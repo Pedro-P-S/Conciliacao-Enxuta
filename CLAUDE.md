@@ -7,7 +7,7 @@ Projeto próprio, separado da Conciliação Financeira (o "projeto grande", em `
 - `docs/spec.md`: a spec única.
 - `GRILL.md`: as decisões de origem da spec.
 - `CONTEXT.md`: o glossário. Use estes termos.
-- `issues/NN-slug.md` e `HANDOFF.md`: tickets e estado do trabalho, criados quando forem necessários.
+- `.scratch/enxuto/issues/NN-slug.md` e `.scratch/enxuto/HANDOFF.md`: tickets e estado do trabalho, criados quando forem necessários.
 
 ## O projeto grande é só peça de reposição
 
@@ -33,4 +33,18 @@ Por enquanto usa o `.venv` do projeto grande; não instale nem atualize pacotes 
 
 ## Agentes
 
-O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`. Aqui não há guardião da documentação. As convenções de tickets ficam em `docs/agents/`.
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`. Aqui não há guardião da documentação.
+
+## Agent skills
+
+### Issue tracker
+
+Markdown local: os tickets ficam em `.scratch/enxuto/issues/NN-slug.md` e a spec em `docs/spec.md`. Ver `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Os cinco rótulos padrão, na linha `**Status:**` de cada ticket, mais `done` para o que foi entregue. Ver `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` e `GRILL.md` na raiz (e `docs/adr/` quando houver). Ver `docs/agents/domain.md`.
