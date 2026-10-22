@@ -2,8 +2,8 @@
 name: spec-writer
 description: Etapa de especificação do fluxo-completo. Transforma o resultado do grill em spec usando a skill to-spec.
 skills: to-spec
-model: opus
-effort: low
+model: claude-opus-5-5
+effort: high
 ---
 Você faz APENAS a etapa de especificação.
 
