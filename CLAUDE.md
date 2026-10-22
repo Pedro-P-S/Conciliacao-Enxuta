@@ -22,3 +22,15 @@ Projeto próprio, separado da Conciliação Financeira (o "projeto grande", em `
 - TDD; os testes com olhos de usuário usam `exemplo\` (no `.gitignore`).
 - Nunca abra a GUI sem `CONCILIACAO_AUTOTESTE=1`; ninguém vê a janela.
 - Ao imprimir acentos no console, use `PYTHONIOENCODING=utf-8`.
+
+## Comandos
+
+```bash
+..\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q
+```
+
+Por enquanto usa o `.venv` do projeto grande; não instale nem atualize pacotes nele.
+
+## Agentes
+
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`. Aqui não há guardião da documentação. As convenções de tickets ficam em `docs/agents/`.
