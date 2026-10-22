@@ -2,6 +2,14 @@
 
 Projeto próprio, separado da Conciliação Financeira (o "projeto grande", em `..\Desafio-Conciliacao`). Tudo em português: código, mensagens, documentos e commits.
 
+## Princípios
+
+Guias, não leis. Na dúvida, eles decidem.
+
+- Entre duas soluções equivalentes, a mais simples.
+- Lute contra o scope creep: só o que foi pedido.
+- O ganho é de quem lê o resultado: mostrar o que está escondido e não é fácil de ver, do jeito mais simples e claro.
+
 ## Fonte da verdade
 
 - `docs/spec.md`: a spec única.
