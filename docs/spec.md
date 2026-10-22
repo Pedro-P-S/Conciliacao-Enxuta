@@ -1,158 +1,125 @@
-# Spec — Conciliação Enxuta
+# Spec: Conciliação Enxuta
 
-Spec única da Conciliação Enxuta. As decisões de origem estão em `GRILL.md` e os termos em `CONTEXT.md`. Nada da spec, do glossário ou dos tickets do projeto grande vale aqui.
+**Status:** ready-for-agent
+
+As decisões de origem estão no `GRILL.md` e os termos no `CONTEXT.md`. A spec, o glossário e os tickets do projeto grande não valem aqui.
 
 ## Problema
 
-O analista tem duas bases que deviam ter os mesmos valores e não têm. Somar e ordenar ele já faz no Excel. A ferramenta precisa entregar o que o Excel não dá de graça:
-- o cruzamento pela Chave;
-- o Tipo do Erro de cada Diferença;
-- onde a Diferença se concentra por Atributo;
-- há quanto tempo cada Diferença está aberta.
-
-Tudo isso precisa caber num Excel pequeno, que se lê de uma vez.
+O analista tem duas bases que deviam ter os mesmos valores e não têm. Somar e ordenar ele já faz no Excel, então uma ferramenta que só faz isso não ajuda. A versão anterior foi para o outro extremo: pedia para mapear cada coluna, e o resultado saía num Excel de umas 10 abas e num HTML de mais umas 15 páginas. Era complicado e não ajudava a achar o que importa.
 
 ## Solução
 
-O usuário escolhe dois arquivos (Base A e Base B), confere a Tolerância e clica em Conciliar. Sai um `.xlsx` com 4 abas: **Resumo**, **Por Tipo do Erro**, **Por Atributo** e **Operações com Diferença**. Ninguém mapeia colunas, e não há outros arquivos de saída.
+O usuário escolhe dois arquivos, Base A e Base B, confere a Tolerância e clica em Conciliar. As colunas `Chave`, `Data` e `Valor` são reconhecidas pelo nome, e o resto é Atributo. Cada arquivo pode trazer várias Data-bases, por exemplo uma posição por dia útil durante seis meses.
+
+Sai um único `.xlsx` com 4 abas:
+- **Resumo**: os totais da Data-base mais recente, a Idade da Diferença por faixa, os avisos e um gráfico da Diferença absoluta no tempo.
+- **Por Tipo do Erro**: quanto da Diferença cada Tipo explica.
+- **Por Atributo**: onde a Diferença se concentra, descontado o peso que cada valor já tem no total.
+- **Operações com Diferença**: as Chaves com Diferença na Data-base mais recente, da maior para a menor, com o Tipo do Erro e o Aberta desde.
+
+O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave, o Tipo do Erro, a Concentração por Atributo e há quanto tempo cada Diferença está aberta.
 
 ## Histórias do usuário
 
-1. Como analista, escolho só os dois arquivos, sem dizer qual coluna é qual.
-2. Como analista, mando um arquivo com seis meses de posições diárias e a ferramenta usa todas.
-3. Como analista, abro o Resumo e vejo de uma vez os totais da última Data-base, a idade das Diferenças e um gráfico da Diferença absoluta no tempo.
-4. Como analista, vejo quanto da Diferença vem de cada Tipo do Erro.
-5. Como analista, vejo quais valores de Atributo concentram a Diferença, sem me enganar com um Atributo que todas as Chaves têm.
-6. Como analista, recebo a lista das Chaves com Diferença na última Data-base, da maior para a menor, cada uma com o Tipo do Erro e a data em que abriu.
-7. Como analista, mudo a Tolerância quando R$ 1,00 não serve.
-8. Como analista, sou avisado quando algo ficou de fora: linhas sem Chave, Data-bases que estão só numa base, operações além do limite.
+1. Como analista, quero escolher só os dois arquivos, para não ter de dizer qual coluna é qual.
+2. Como analista, quero que as colunas `Chave`, `Data` e `Valor` sejam reconhecidas mesmo com maiúscula, acento ou espaço diferente, para não ter de renomear o arquivo.
+3. Como analista, quero que toda coluna além dessas três vire Atributo automaticamente, com o nome que eu dei.
+4. Como analista, quero usar `.csv`, `.xlsx` ou `.parquet`, para trabalhar com o que o sistema exporta.
+5. Como analista, quero que valores no formato brasileiro (`1.234,56`, `(1.234,56)`, `R$`) sejam lidos certo.
+6. Como analista, quero que datas do Excel, `DD/MM/AAAA` e `AAAA-MM-DD` sejam aceitas.
+7. Como analista, quero uma mensagem clara que diga qual coluna falta e em qual arquivo, e liste as colunas encontradas.
+8. Como analista, quero saber o arquivo, a linha e o conteúdo de um Valor ou de uma Data que não pôde ser lido.
+9. Como analista, quero mandar um arquivo com seis meses de posições diárias, para acompanhar a Diferença no tempo.
+10. Como analista, quero que as Data-bases que estão só numa base sejam ignoradas e listadas, para não ver picos falsos.
+11. Como analista, quero que linhas com a mesma Chave na mesma Data-base sejam somadas.
+12. Como analista, quero que linhas sem Chave fiquem fora do cruzamento e que o Resumo me diga quantas são e quanto somam.
+13. Como analista, quero definir uma Tolerância (padrão de R$ 1,00), para que diferenças de centavos não poluam o resultado.
+14. Como analista, quero que a Tolerância valha também para Chaves Só em A ou Só em B.
+15. Como analista, quero ver no Resumo o Total A, o Total B, a Diferença total, a Diferença absoluta e quantas Chaves têm Diferença na Data-base mais recente.
+16. Como analista, quero ver a Diferença absoluta além da total, para não me enganar quando positivas e negativas se anulam.
+17. Como analista, quero ver no Resumo a Idade da Diferença em faixas (até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos, mais de 5 anos), com Chaves e valor em cada uma.
+18. Como analista, quero ser avisado quando uma Diferença já existia na primeira Data-base do arquivo, porque aí a idade real pode ser maior.
+19. Como analista, quero um gráfico simples da Diferença absoluta por Data-base, sem uma tabela que estoure o Excel.
+20. Como analista, quero ver quanto cada Tipo do Erro explica, em Chaves e em Diferença absoluta.
+21. Como analista, quero saber que uma Chave com dois Tipos conta nos dois.
+22. Como analista, quero ver quais valores de Atributo concentram a Diferença, ordenados pela Concentração por valor.
+23. Como analista, não quero que um valor de Atributo que todas as Chaves têm apareça como suspeito.
+24. Como analista, quero ver por Atributo só a Diferença e a % da Diferença, sem colunas técnicas.
+25. Como analista, quero a lista das Chaves com Diferença na Data-base mais recente, da maior para a menor Diferença absoluta.
+26. Como analista, quero ver em cada Chave o Valor A, o Valor B, a Diferença, o Tipo do Erro, o Aberta desde e todos os Atributos.
+27. Como analista, quero que o Tipo do Erro liste todos os tipos que se aplicam.
+28. Como analista, quero que o Aberta desde mostre a data da última abertura, quando a Diferença some e volta.
+29. Como analista, quero que o Aberta desde não mude quando a Diferença só muda de valor.
+30. Como analista, quero ver "DD/MM/AAAA ou antes" quando a Diferença já existia na primeira Data-base.
+31. Como analista, quero filtrar e ordenar a aba de operações pelo cabeçalho.
+32. Como analista, quero ser avisado na própria aba quando a lista passar de 700 mil linhas e for cortada.
+33. Como analista, quero que o arquivo de saída tenha a Data-base no nome e fique na pasta da Base A.
+34. Como analista, quero ver o caminho do resultado no fim e poder abrir a pasta com um clique.
+35. Como analista, quero mensagens de erro em linguagem simples, sem traceback na tela.
+36. Como analista técnico, quero rodar a conciliação pela linha de comando, para automatizar.
 
-## Entrada
+## Decisões de implementação
 
-### Arquivos
+**Módulos:**
+- `leitura`: arquivo → DataFrame com Chave (texto, sem espaço nas pontas), Data-base (data), Valor (centavos `Int64`) e Atributos (texto). Os nomes de coluna são reconhecidos sem diferenciar maiúscula, acento e espaço nas pontas. Os erros dizem o arquivo, a linha e o conteúdo.
+- `cruzamento`: a seam principal. `conciliar(base_a, base_b, tolerancia)` recebe os dois DataFrames lidos e a Tolerância em centavos, e devolve um Resultado com os totais, a Idade por faixa, os avisos, a série do gráfico, a tabela por Tipo do Erro, a tabela por Atributo e as Operações com Diferença. Só funções puras sobre DataFrames.
+- `excel`: Resultado → `.xlsx` com as 4 abas e a aba oculta do gráfico. O limite de linhas é um parâmetro, com padrão 700.000.
+- `cli`, `gui` e `gui_estado`. A GUI é casca: as regras ficam em `gui_estado`, que não importa Tkinter.
 
-- `.csv`, `.xlsx` (primeira aba) ou `.parquet`, um por base.
-- Os nomes das colunas são reconhecidos sem diferenciar maiúscula, acento e espaço nas pontas:
-  - `Chave`: obrigatória, lida como texto. Tira os espaços das pontas.
-  - `Data`: obrigatória. Aceita data do Excel, `DD/MM/AAAA` e `AAAA-MM-DD`.
-  - `Valor`: obrigatória. Aceita número nativo e o formato brasileiro (`1.234,56`, `-1.234,56`, `(1.234,56)`, `R$`). Vira centavos `Int64` e fica assim até a apresentação.
-  - Qualquer outra coluna é **Atributo**, lida como texto.
-- Se faltar uma coluna obrigatória, a mensagem diz qual falta, em qual arquivo, e lista as colunas encontradas.
-- Se um Valor ou uma Data não puder ser lido, a mensagem diz o arquivo, a linha e o conteúdo.
+**Regras:**
+- **Preparação:** linhas sem Chave saem do cruzamento e são contadas e somadas por base. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
+- **Data-bases:** entram só as comuns às duas bases. A Data-base mais recente é a maior comum.
+- **Cruzamento por Data-base:** junção completa pela Chave. Diferença = A − B, e o lado que falta conta como 0. Uma Chave tem Diferença quando |Diferença| > Tolerância. O Atributo vem de A e, se vazio ou ausente, de B.
+- **Tipo do Erro**, só na Data-base mais recente, com todos os que se aplicam separados por `; ` nesta ordem:
+  - Só em A;
+  - Só em B;
+  - Sinal invertido: A = −B, com A ≠ 0;
+  - Duplicado: A = 2×B ou B = 2×A;
+  - Vírgula deslocada: A/B ∈ {10, 100, 1000, 0,1, 0,01, 0,001};
+  - Dígitos trocados: |Diferença| múltiplo de 9 centavos e os mesmos dígitos de |A| e |B| em outra ordem;
+  - Sem padrão: nenhum dos anteriores.
 
-### Parâmetro
+  A Tolerância vale como folga nas comparações de Sinal, Duplicado e Vírgula. A detecção pode ser copiada do projeto grande e adaptada, sem importar.
+- **Aberta desde:** a primeira Data-base de uma sequência contínua de Diferença até a mais recente. Se a sequência começa na primeira Data-base, é marcada como "ou antes".
+- **Idade:** dias corridos entre o Aberta desde e a Data-base mais recente. Faixas: ≤ 30, 31–90, 91–365, 366–1826 e > 1826 dias.
+- **Concentração por valor:** para cada Atributo e valor, é a % da Diferença absoluta dividida pela % de |Valor A| no total (usa B quando A é zero). Entram só os valores com pelo menos uma Chave com Diferença. A tabela é ordenada pela Concentração, decrescente, e a Concentração não é exibida. A coluna Diferença é a soma com sinal, e a % da Diferença é a parte da Diferença absoluta.
+- **Invariante:** na Data-base mais recente, Total A − Total B = Diferença total das Chaves com Diferença + a soma das Diferenças dentro da Tolerância.
 
-- **Tolerância**: em reais, padrão `1,00`, não negativa. Uma Diferença com |Diferença| ≤ Tolerância conta como zero, inclusive quando a Chave está Só em A ou Só em B.
+**Saída:**
+- **Arquivo:** `conciliacao_AAAA-MM-DD.xlsx`, na pasta da Base A, sobrescrevendo se já existir. Reais com formato `#.##0,00`.
+- **Resumo:** um quadro com a Data-base mais recente, a Tolerância, Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença. Embaixo, as 5 faixas de Idade com Chaves e Diferença absoluta. Depois, os avisos, só quando acontecem: Chaves abertas desde a primeira Data-base, linhas sem Chave por base, Data-bases ignoradas e o corte de operações. Por último, um gráfico de linha da Diferença absoluta por Data-base, com os dados na aba oculta `_grafico`. Sem tabela de histórico.
+- **Por Tipo do Erro:** colunas Tipo do Erro, Chaves e Diferença absoluta, ordenadas pela Diferença absoluta, com uma nota de que uma Chave pode contar em mais de um Tipo.
+- **Por Atributo:** colunas Atributo, Valor, Diferença e % da Diferença. Sem filtro.
+- **Operações com Diferença:** colunas Chave, Valor A, Valor B, Diferença, Tipo do Erro, Aberta desde e os Atributos com o nome original, ordenadas por |Diferença| decrescente. Cabeçalho congelado e com filtro. Acima do limite, mostra as maiores, e um aviso na linha 1 diz "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores."; o cabeçalho passa para a linha 2.
 
-## Regras
+**Interface:**
+- **GUI Tkinter:** Base A e Base B, cada uma com o botão Procurar, a Tolerância (padrão 1,00) e o botão Conciliar. No fim, mostra o caminho e um botão para abrir a pasta. Os erros aparecem em linguagem simples, e o traceback vai para `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`.
+- **CLI:** `python -m conciliacao_enxuta conciliar BASE_A BASE_B [--tolerancia 1,00] [--saida PASTA]`.
+- **Autoteste:** com `CONCILIACAO_AUTOTESTE=1`, a GUI monta escondida, fecha sozinha e sai com 0 (ou 1, se falhar).
 
-### Preparação (por base)
-
-1. As linhas com Chave vazia saem do cruzamento. O Resumo mostra quantas são e a soma delas, por base.
-2. As linhas com a mesma Chave e a mesma Data-base são **somadas**. Os Atributos dessa Chave vêm da primeira linha.
-
-### Data-bases
-
-3. Entram só as Data-bases que existem nas duas bases. As que estão só numa base saem, e o Resumo lista quais foram.
-4. A **Data-base mais recente** é a maior Data-base comum.
-
-### Cruzamento (por Data-base)
-
-5. Junção completa pela Chave. Diferença = Valor A − Valor B, e o lado que falta conta como 0.
-6. Uma Chave tem Diferença na Data-base quando |Diferença| > Tolerância.
-7. Atributo: vale o de A. Se A não tiver a coluna ou o valor estiver vazio, vale o de B.
-
-### Tipo do Erro (só na Data-base mais recente)
-
-Lista todos os tipos que se aplicam, separados por `; ` e na ordem abaixo:
-
-| Tipo | Regra |
-|---|---|
-| Só em A | a Chave não existe em B nessa Data-base |
-| Só em B | a Chave não existe em A nessa Data-base |
-| Sinal invertido | A = −B, com A ≠ 0 |
-| Duplicado | A = 2×B ou B = 2×A |
-| Vírgula deslocada | A/B ∈ {10, 100, 1000, 0,1, 0,01, 0,001} |
-| Dígitos trocados | \|Diferença\| é múltiplo de 9 centavos e os dígitos de \|A\| e \|B\| em centavos são os mesmos em outra ordem |
-| Sem padrão | nenhum dos anteriores |
-
-As comparações de Sinal invertido, Duplicado e Vírgula deslocada aceitam a Tolerância como folga. A detecção pode ser adaptada de `conciliacao/diagnostico.py` do projeto grande, mas copiando, sem importar.
-
-### Aberta desde e Idade da Diferença
-
-8. **Aberta desde** de uma Chave com Diferença na Data-base mais recente: anda para trás pelas Data-bases comuns e para na primeira em que a Chave não tinha Diferença (ou não existia nas duas bases). Aberta desde é a Data-base logo depois dessa. Se a Diferença só mudou de valor sem ficar abaixo da Tolerância, a data não muda.
-9. Se a Chave tem Diferença em todas as Data-bases, desde a primeira, o Aberta desde é a primeira Data-base, marcado como "ou antes" (texto `DD/MM/AAAA ou antes`).
-10. **Idade** = dias corridos entre Aberta desde e a Data-base mais recente.
-11. **Faixas**: até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos (até 1826 dias) e mais de 5 anos.
-
-### Concentração por Atributo (só na Data-base mais recente)
-
-12. Para cada Atributo e cada valor dele:
-    - **Diferença** = soma das Diferenças com sinal das Chaves com Diferença;
-    - **% da Diferença** = soma de |Diferença| desse valor ÷ Diferença absoluta total;
-    - **Concentração** = % da Diferença ÷ (soma de |Valor A| desse valor ÷ soma de |Valor A| total). Se A for zero, usa B.
-13. A aba é ordenada pela Concentração, decrescente. A Concentração não aparece na aba. Entram só os valores com pelo menos uma Chave com Diferença.
-
-## Saída: `conciliacao_AAAA-MM-DD.xlsx`
-
-A data no nome é a Data-base mais recente. O arquivo vai para a pasta da Base A, e um arquivo com o mesmo nome é sobrescrito. Os valores saem em reais, com formato `#.##0,00`.
-
-### Aba "Resumo"
-
-Em cima, um quadro com:
-- Data-base mais recente e Tolerância;
-- Total A, Total B, Diferença total, Diferença absoluta, Chaves com Diferença.
-
-Embaixo do quadro, a Idade da Diferença: uma linha por faixa, com Chaves e Diferença absoluta.
-
-Depois vêm os avisos, cada um numa linha e só quando acontece:
-- "X Chaves já tinham Diferença na primeira Data-base (DD/MM/AAAA); a idade delas é no mínimo a mostrada."
-- "Linhas sem Chave: A tem N linhas (R$ …), B tem M linhas (R$ …). Ficaram fora."
-- "Data-bases ignoradas por estarem só numa base: …"
-- "Operações com Diferença foi cortada em 700.000 linhas."
-
-Por último, um **gráfico de linha** da Diferença absoluta por Data-base comum. Os dados do gráfico ficam numa aba oculta `_grafico`, que não conta como aba visível. A aba Resumo não tem tabela de histórico.
-
-### Aba "Por Tipo do Erro"
-
-Colunas: Tipo do Erro, Chaves e Diferença absoluta. Uma linha por tipo, ordenada pela Diferença absoluta. Uma Chave com dois tipos conta nos dois, e uma nota abaixo da tabela avisa isso.
-
-### Aba "Por Atributo"
-
-Colunas: Atributo, Valor, Diferença e % da Diferença. Ordenada pela Concentração, conforme a regra 13. A aba não tem filtro.
-
-### Aba "Operações com Diferença"
-
-Uma linha por Chave com Diferença na Data-base mais recente, ordenada por |Diferença| decrescente. Colunas, nesta ordem: Chave, Valor A, Valor B, Diferença, Tipo do Erro, Aberta desde e todos os Atributos (com o nome original). O cabeçalho fica congelado e com filtro.
-
-O limite é de **700.000 linhas**. Se passar disso, a aba fica com as 700.000 maiores, e a linha 1 traz o aviso "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores." Nesse caso o cabeçalho passa para a linha 2.
-
-## Interface
-
-- **GUI Tkinter** com um campo para a Base A, outro para a Base B (cada um com o botão Procurar), o campo Tolerância (padrão 1,00) e o botão Conciliar. No fim, a janela mostra o caminho do `.xlsx` e um botão para abrir a pasta. Os erros aparecem em linguagem simples e o traceback vai para `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`.
-- **CLI**: `python -m conciliacao_enxuta conciliar BASE_A BASE_B [--tolerancia 1,00] [--saida PASTA]`.
-- **Autoteste**: com `CONCILIACAO_AUTOTESTE=1`, a GUI monta escondida, fecha sozinha e sai com 0. Se falhar, sai com 1.
-- A GUI é só casca: as regras ficam em módulos sem Tkinter, que são testados.
-
-## Implementação
-
-- O código fica em `conciliacao_enxuta/` e os testes em `tests/`. O pacote não importa nada de `conciliacao/`. Leitura, parse de valor e data, centavos, formatação e detecção de padrões podem ser **copiados** do projeto grande e adaptados.
-- Usa Polars para os dados e openpyxl para o `.xlsx`, incluindo o gráfico. Por enquanto usa o `.venv` do projeto grande (`..\Desafio-Conciliacao\.venv`).
-- Módulos sugeridos:
-  - `leitura`: arquivos → DataFrame com Chave, Data, Valor (centavos) e Atributos;
-  - `cruzamento`: duas bases → uma linha por Data-base × Chave, com A, B, Diferença e Atributos;
-  - `analise`: funções puras para Tipo do Erro, Aberta desde, Idade, faixas, Concentração e totais;
-  - `excel`: as 4 abas;
-  - `cli`, `gui`, `gui_estado`.
-- **Invariante:** na Data-base mais recente, Total A − Total B = Diferença total das Chaves com Diferença + a soma das Diferenças abaixo da Tolerância.
+**Técnico:** Polars para os dados e openpyxl para o `.xlsx` e o gráfico. Dinheiro em centavos `Int64` até o Excel. Nada é importado do pacote do projeto grande.
 
 ## Testes
 
-- TDD. O seam principal é `cruzamento` + `analise` sobre DataFrames pequenos montados no teste.
-- Um gerador de bases de exemplo com padrões plantados e um gabarito: Diferenças de cada Tipo, Chaves que abrem e fecham, uma Chave aberta desde a primeira Data-base, um Atributo concentrado e um Atributo que todas as Chaves têm.
-- Um teste de ponta a ponta lê o `.xlsx` com openpyxl e confere com o gabarito: abas, totais, faixas, ordem, Aberta desde, avisos e o corte das 700 mil linhas (com o limite reduzido por parâmetro no teste).
-- Os testes com olhos de usuário usam `exemplo/`, que fica no `.gitignore`.
+- **Um bom teste** confere comportamento externo: dadas estas bases, o resultado ou o Excel mostra isto. Não testa função interna.
+- **Seam 1, `conciliar`:** DataFrames pequenos montados no próprio teste. Cobre o cruzamento, a Tolerância (inclusive em órfãs), cada Tipo do Erro e combinações, o Aberta desde (some e volta, muda de valor, "ou antes"), as bordas das faixas, a Concentração (um Atributo concentrado e um que todas as Chaves têm), as Data-bases só numa base, as Chaves repetidas, as linhas sem Chave, o Atributo de A com fallback para B e a invariante.
+- **Seam 2, de ponta a ponta:** arquivos → `.xlsx`, lido com openpyxl. Usa um gerador de bases de exemplo com padrões plantados e um gabarito. Confere os nomes e a quantidade de abas, os totais, as faixas, a ordem das linhas, as colunas, o Aberta desde, os avisos, a existência do gráfico, os formatos de entrada, as mensagens de erro e o corte com o limite reduzido por parâmetro.
+- **GUI:** sem teste de clique. `gui_estado` é testado pela seam 1 ou direto, e o autoteste confere que a janela monta.
+- **Prior art:** o projeto grande testa assim. Prepara duas bases, cruza, confere contra o gabarito do gerador de exemplo e lê o `.xlsx` com openpyxl.
+- Todo ticket termina com um teste com olhos de usuário em `exemplo\`.
 
 ## Fora do escopo
 
-Dashboard HTML, CSV e Parquet de saída, Histórico persistido entre Execuções, Justificativas, Bases Auxiliares, mais de um Par de Valor, Chave composta, mapeamento de colunas, Qualidade, Pareto, Compensação Oculta, Pares Prováveis, Valor Fixo, Percentual Constante, Ponta Zerada, Arredondamento e o .exe (fica para depois).
+- Dashboard HTML e saídas em CSV ou Parquet.
+- Histórico persistido entre Execuções, Justificativas e Aging com episódios.
+- Bases Auxiliares, mais de um Par de Valor, Chave composta e mapeamento de colunas.
+- Qualidade, Pareto, Compensação Oculta e Pares Prováveis.
+- Os Tipos Valor Fixo, Percentual Constante, Ponta Zerada e Arredondamento.
+- Mostrar Abertas e Regularizadas por Data-base.
+- O `.exe`, que fica para depois.
+
+## Notas
+
+- Princípios do `CLAUDE.md`: entre duas soluções equivalentes, a mais simples; nada além do pedido; o ganho é de quem lê o Excel.
+- Peças que podem ser copiadas do projeto grande e adaptadas: parse de valor brasileiro e de data, centavos, leitura de csv/xlsx/parquet, formatação em reais e a detecção de padrões.
