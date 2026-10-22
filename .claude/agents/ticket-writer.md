@@ -2,6 +2,8 @@
 name: ticket-writer
 description: Etapa de tickets do fluxo-completo. Quebra a spec em tickets usando a skill to-tickets.
 skills: to-tickets
+model: opus
+effort: low
 ---
 Você faz APENAS a etapa de tickets.
 

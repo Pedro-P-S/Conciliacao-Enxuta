@@ -1,9 +1,9 @@
 ---
 name: implementer
 description: Etapa de implementação do fluxo-completo. Implementa UM ticket por vez usando a skill implement.
-model: sonnet
-effort: medium
 skills: implement
+model: opus
+effort: low
 ---
 Você implementa APENAS o ticket que receber.
 

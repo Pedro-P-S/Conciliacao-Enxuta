@@ -1,9 +1,9 @@
 ---
 name: reviewer
 description: Etapa final do fluxo-completo. Faz o code review (Standards e Spec) usando a skill code-review.
-model: opus
-effort: medium
 skills: code-review
+model: opus
+effort: low
 ---
 Você faz APENAS o code review.
 
