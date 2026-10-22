@@ -4,20 +4,29 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `conciliar` recebe os dois DataFrames lidos e a Tolerância em centavos e devolve um Resultado com Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença da Data-base mais recente; dinheiro sempre em centavos `Int64`.
-- [ ] Testes da seam 1 (DataFrames montados no teste): junção completa, lado ausente = 0, Tolerância como `>` estrito (diferença igual à Tolerância não conta), Tolerância também em Chaves Só em A e Só em B.
-- [ ] Teste da seam 1 da invariante: Total A − Total B = Diferença total das Chaves com Diferença + soma das Diferenças dentro da Tolerância.
-- [ ] A Diferença absoluta e a Diferença total aparecem separadas, e um teste mostra um caso em que positivas e negativas se anulam na total e não na absoluta.
-- [ ] O arquivo sai como `conciliacao_AAAA-MM-DD.xlsx` (Data-base mais recente), na pasta da Base A por padrão ou na pasta de `--saida`, sobrescrevendo se já existir; a CLI imprime o caminho do resultado.
-- [ ] `--tolerancia` aceita o formato brasileiro (`1,00`, `0,50`) e o padrão é 1,00.
-- [ ] No Resumo os valores em reais têm o formato `#.##0,00` (convertidos de centavos só no Excel).
-- [ ] Gerador de bases de exemplo com gabarito (totais e Chaves com Diferença esperados); teste de ponta a ponta (seam 2) gera os arquivos, roda a CLI, lê o `.xlsx` com openpyxl e confere o Resumo contra o gabarito.
-- [ ] Nada é importado do pacote do projeto grande; peças copiadas e adaptadas são aceitas.
-- [ ] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
-- [ ] Teste com olhos de usuário: criar `exemplo\` com o gerador (Base A e Base B em `.csv`), rodar a CLI sobre eles, abrir o `.xlsx` gerado com openpyxl (com `PYTHONIOENCODING=utf-8`) e conferir que o Resumo mostra os totais esperados e o caminho impresso é o da pasta da Base A.
+- [x] `conciliar` recebe os dois DataFrames lidos e a Tolerância em centavos e devolve um Resultado com Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença da Data-base mais recente; dinheiro sempre em centavos `Int64`.
+- [x] Testes da seam 1 (DataFrames montados no teste): junção completa, lado ausente = 0, Tolerância como `>` estrito (diferença igual à Tolerância não conta), Tolerância também em Chaves Só em A e Só em B.
+- [x] Teste da seam 1 da invariante: Total A − Total B = Diferença total das Chaves com Diferença + soma das Diferenças dentro da Tolerância.
+- [x] A Diferença absoluta e a Diferença total aparecem separadas, e um teste mostra um caso em que positivas e negativas se anulam na total e não na absoluta.
+- [x] O arquivo sai como `conciliacao_AAAA-MM-DD.xlsx` (Data-base mais recente), na pasta da Base A por padrão ou na pasta de `--saida`, sobrescrevendo se já existir; a CLI imprime o caminho do resultado.
+- [x] `--tolerancia` aceita o formato brasileiro (`1,00`, `0,50`) e o padrão é 1,00.
+- [x] No Resumo os valores em reais têm o formato `#.##0,00` (convertidos de centavos só no Excel).
+- [x] Gerador de bases de exemplo com gabarito (totais e Chaves com Diferença esperados); teste de ponta a ponta (seam 2) gera os arquivos, roda a CLI, lê o `.xlsx` com openpyxl e confere o Resumo contra o gabarito.
+- [x] Nada é importado do pacote do projeto grande; peças copiadas e adaptadas são aceitas.
+- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] Teste com olhos de usuário: criar `exemplo\` com o gerador (Base A e Base B em `.csv`), rodar a CLI sobre eles, abrir o `.xlsx` gerado com openpyxl (com `PYTHONIOENCODING=utf-8`) e conferir que o Resumo mostra os totais esperados e o caminho impresso é o da pasta da Base A.
 
 **Notas de entrega:**
+
+- Pacote `conciliacao_enxuta` criado com `leitura` (`ler_base`: `.csv` com `Chave`, `Data` AAAA-MM-DD e `Valor` como `1234.56`, convertido para centavos via Decimal, sem float), `cruzamento` (`conciliar(base_a, base_b, tolerancia)` devolve o `Resultado` com os totais em centavos; usa a maior Data-base comum, que com uma só Data-base é ela mesma; `TOLERANCIA_PADRAO = 100`), `excel` (`gravar_excel`: aba Resumo em `conciliacao_AAAA-MM-DD.xlsx`, sobrescrevendo), `cli` (`conciliar BASE_A BASE_B [--tolerancia 1,00] [--saida PASTA]`, imprime o caminho), `__main__` e `exemplo` (`gerar_bases_exemplo(pasta)` com Diferenças plantadas e `Gabarito`; `python -m conciliacao_enxuta.exemplo [PASTA]` preenche `exemplo\`).
+- Diferença total e Diferença absoluta somam só as Chaves com Diferença (|Diferença| > Tolerância), como pede a invariante.
+- Formato dos reais: o código gravado no `.xlsx` é `#,##0.00`, que é como o arquivo guarda o formato; o Excel em português o mostra como `#.##0,00`. Gravar `#.##0,00` literalmente seria errado. Data-base com `DD/MM/YYYY`.
+- `--tolerancia` aceita vírgula ou ponto e recusa valor negativo, não numérico ou não finito com "Tolerância inválida" (um negativo precisa ser passado como `--tolerancia=-1`, regra do argparse).
+- Code review (Standards e Spec): sem falta nem scope creep. Corrigidos: Valor passava por float, Tolerância negativa aceita, padrão de Tolerância duplicado, nomes em inglês no gerador e parâmetros sem uso. Não aplicados: dividir o teste de ponta a ponta em vários e fazer o `Gabarito` reusar o `Resultado`.
+- Teste com olhos de usuário: `exemplo\` gerado, a CLI imprimiu `exemplo\conciliacao_2026-09-30.xlsx` (pasta da Base A) e o Resumo bateu com o gabarito (Total A 9.043.336,04; Total B 8.944.015,02; Diferença total 99.316,49; Diferença absoluta 1.918.140,77; 60 Chaves com Diferença).
+- Arquivos: `pytest.ini`, `conciliacao_enxuta/__init__.py`, `__main__.py`, `cli.py`, `cruzamento.py`, `excel.py`, `exemplo.py`, `leitura.py`, `tests/test_cruzamento.py`, `tests/test_leitura.py`, `tests/test_ponta_a_ponta.py`.
+- pytest: 16 passed.
 
 **Onde está agora (depois da entrega):**
