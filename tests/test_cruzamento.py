@@ -92,15 +92,13 @@ def test_linhas_da_mesma_chave_na_mesma_data_base_sao_somadas_antes_de_comparar(
     assert r.diferenca_absoluta == 0
 
 
-def test_linhas_sem_chave_ficam_fora_e_sao_contadas_e_somadas_por_base():
+def test_linhas_sem_chave_ficam_fora_do_cruzamento_e_sao_contadas_e_somadas_por_base():
     a = base([("1", 10_000), (None, 500), ("", 250), ("   ", -50)])
     b = base([("1", 10_000), ("", 40_000)])
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.total_a == r.total_b == 10_000
     assert r.chaves_com_diferenca == 0
-    assert r.diferenca_absoluta == 0
     assert r.sem_chave_a == SemChave(linhas=3, soma=700)
     assert r.sem_chave_b == SemChave(linhas=1, soma=40_000)
 
@@ -641,3 +639,88 @@ def test_valor_sem_chave_com_diferenca_nao_aparece():
     r = conciliar(a, b, tolerancia=100)
 
     assert r.por_atributo.select("Valor", "Absoluta").rows() == [("Crédito", 10_000)]
+
+
+def test_totais_incluem_as_linhas_sem_chave_das_duas_bases():
+    a = base([("1", 10_000), (None, 500), ("", 250)])
+    b = base([("1", 10_000), ("   ", 40_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.total_a == 10_750
+    assert r.total_b == 50_000
+
+
+def test_linha_sem_chave_soma_mais_valor_em_a_e_menos_valor_em_b_na_diferenca():
+    a = base([("1", 10_000), ("", 500)])
+    b = base([("1", 10_000), ("", 2_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.diferenca_total == 500 - 2_000
+    assert r.diferenca_absoluta == 500 + 2_000
+
+
+def test_linha_sem_chave_dentro_da_tolerancia_fica_nos_totais_e_fora_da_diferenca():
+    a = base([("1", 10_000), ("", 100)])
+    b = base([("1", 10_000), ("", -100), ("", 101)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.total_a == 10_100
+    assert r.total_b == 10_001
+    assert r.diferenca_total == -101
+    assert r.diferenca_absoluta == 101
+
+
+def test_linhas_sem_chave_que_se_anulariam_contam_cada_uma_na_diferenca_absoluta():
+    a = base([("1", 10_000), ("", 10_000), ("", -10_000)])
+    b = base([("1", 10_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.diferenca_total == 0
+    assert r.diferenca_absoluta == 20_000
+
+
+def test_historico_inclui_as_linhas_sem_chave_de_cada_data_base_comum_e_ignora_as_outras():
+    a = base_com_data_bases({1: [("x", 100), ("", 500)], 2: [("x", 100), ("", 700)], 3: [("x", 100), ("", 9)]})
+    b = base_com_data_bases({2: [("x", 100), ("", 300)], 3: [("x", 100)], 4: [("x", 100), ("", 8_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.historico == ((dia(2), 700 + 300), (dia(3), 0))
+    assert r.total_a == 109
+    assert r.total_b == 100
+    assert r.diferenca_absoluta == 0
+
+
+def test_linhas_sem_chave_nao_mudam_chaves_com_diferenca_por_tipo_por_atributo_nem_operacoes():
+    def com_filial(linhas: list[tuple[str | None, int, str]]) -> pl.DataFrame:
+        return base([(c, v) for c, v, _ in linhas]).with_columns(pl.Series("Filial", [f for _, _, f in linhas]))
+
+    a = [("1", 10_000, "SP"), ("2", 5_000, "RJ")]
+    b = [("1", 9_000, "SP"), ("2", 5_000, "RJ")]
+    sem = conciliar(com_filial(a), com_filial(b), tolerancia=100)
+    com = conciliar(
+        com_filial(a + [("", 7_000, "SP"), (None, -300, "RJ")]),
+        com_filial(b + [(" ", 50_000, "MG")]),
+        tolerancia=100,
+    )
+
+    assert com.chaves_com_diferenca == sem.chaves_com_diferenca == 1
+    assert com.por_tipo.equals(sem.por_tipo)
+    assert com.por_atributo.equals(sem.por_atributo)
+    assert com.operacoes.equals(sem.operacoes)
+    assert com.atributos.equals(sem.atributos)
+
+
+def test_invariante_vale_com_as_linhas_sem_chave():
+    a = base([("1", 100_000), ("2", 50_000), ("", 30_000), ("", 60)])
+    b = base([("1", 99_950), ("2", 60_000), ("", 4_000), ("", -90)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    dentro_da_tolerancia = 50 + 60 + 90  # Chave 1 e as duas linhas sem Chave pequenas (+60 em A, −(−90) em B)
+    assert r.diferenca_total == -10_000 + 30_000 - 4_000
+    assert r.total_a - r.total_b == r.diferenca_total + dentro_da_tolerancia

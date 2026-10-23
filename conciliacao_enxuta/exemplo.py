@@ -32,9 +32,11 @@ N_CHAVES = 200
 # Chaves gravadas em duas linhas, que o cruzamento tem de somar: uma sem Diferença e uma com
 REPETIDAS_A = ["C00005", "C00011"]
 REPETIDAS_B = ["C00006", "C00021"]
-# Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento; repetidas em toda Data-base
+# Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento; repetidas em toda Data-base.
+# Todas passam da Tolerância: cada uma é Diferença do valor inteiro (+ em A, − em B) em toda Data-base comum.
 SEM_CHAVE_A = [("", 12_345), ("   ", -2_000)]
 SEM_CHAVE_B = [("", 77_700)]
+DIFERENCAS_SEM_CHAVE = [v for _, v in SEM_CHAVE_A] + [-v for _, v in SEM_CHAVE_B]
 # Chaves de Diferença plantada que ficam sem ela de uma Data-base a outra, inclusive, com esta Diferença.
 # O Aberta desde delas é o dia útil seguinte; as outras têm Diferença desde a primeira Data-base ("ou antes"),
 # com outro valor a cada dia.
@@ -304,7 +306,8 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     aberta_desde = {chave: _aberta_desde(chave, plantadas) for chave in diferencas}
 
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
-    # As linhas sem Chave se repetem em toda Data-base, como numa posição diária; só contam as da mais recente.
+    # As linhas sem Chave se repetem em toda Data-base, como numa posição diária: nos totais e no aviso, só contam
+    # as da mais recente; no Histórico, entram em cada Data-base comum.
     linhas_a = [
         (chave, data, valor, *map(_atributos_plantados(chave)[0].get, ATRIBUTOS_A))
         for data, valores in posicoes_a.items()
@@ -332,15 +335,17 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         base_a=base_a,
         base_b=base_b,
         data_base=DATA_BASE,
-        total_a=sum(a.values()),
-        total_b=sum(b.values()),
-        diferenca_total=sum(diferencas.values()),
-        diferenca_absoluta=sum(abs(d) for d in diferencas.values()),
+        total_a=sum(a.values()) + _sem_chave(SEM_CHAVE_A).soma,
+        total_b=sum(b.values()) + _sem_chave(SEM_CHAVE_B).soma,
+        diferenca_total=sum(diferencas.values()) + sum(DIFERENCAS_SEM_CHAVE),
+        diferenca_absoluta=sum(abs(d) for d in [*diferencas.values(), *DIFERENCAS_SEM_CHAVE]),
         chaves_com_diferenca=len(diferencas),
         sem_chave_a=_sem_chave(SEM_CHAVE_A),
         sem_chave_b=_sem_chave(SEM_CHAVE_B),
         data_bases_so_em_b=(SO_NA_BASE_B,),
-        historico=tuple((data, sum(abs(d) for d in ds.values())) for data, ds in plantadas.items()),
+        historico=tuple(
+            (data, sum(abs(d) for d in [*ds.values(), *DIFERENCAS_SEM_CHAVE])) for data, ds in plantadas.items()
+        ),
         operacoes=tuple(
             sorted(
                 ((chave, a.get(chave, 0), b.get(chave, 0), d, tipos[chave]) for chave, d in diferencas.items()),

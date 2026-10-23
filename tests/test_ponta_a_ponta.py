@@ -8,7 +8,7 @@ import pytest
 from conciliacao_enxuta.cli import main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
 from conciliacao_enxuta.excel import gravar_excel
-from conciliacao_enxuta.exemplo import gerar_bases_exemplo
+from conciliacao_enxuta.exemplo import DIFERENCAS_SEM_CHAVE, gerar_bases_exemplo
 from conciliacao_enxuta.leitura import ler_base
 
 FORMATO_REAIS = "#,##0.00"
@@ -452,7 +452,9 @@ def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(
     ]
     assert all(absoluta.number_format == FORMATO_REAIS for _, _, absoluta in faixas)
     assert sum(chaves.value for _, chaves, _ in faixas) == gabarito.chaves_com_diferenca
-    assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta
+    # As linhas sem Chave ainda não têm Idade: as faixas somam a Diferença absoluta das Chaves
+    sem_chave = sum(abs(d) for d in DIFERENCAS_SEM_CHAVE)
+    assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta - sem_chave
     # Os avisos vêm depois das faixas
     assert rotulos.index(AVISO_SEM_CHAVE) > inicio + 5
 
