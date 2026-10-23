@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import openpyxl
+from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font
 
 from conciliacao_enxuta.cruzamento import Resultado
@@ -59,5 +60,31 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
     ws.column_dimensions["B"].width = 20
     ws.column_dimensions["C"].width = 20
 
+    _grafico_da_diferenca(wb, ws, resultado)
+
     wb.save(caminho)
     return caminho
+
+
+def _grafico_da_diferenca(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
+    """Gráfico de linha da Diferença absoluta por Data-base, abaixo de tudo no Resumo; os dados vão na aba oculta `_grafico`."""
+    dados = wb.create_sheet("_grafico")
+    dados.sheet_state = "hidden"
+    dados.append(["Data-base", "Diferença absoluta"])
+    for data, absoluta in resultado.historico:
+        dados.append([data, absoluta / 100])
+        linha = dados.max_row
+        dados.cell(linha, 1).number_format = FORMATO_DATA
+        dados.cell(linha, 2).number_format = FORMATO_REAIS
+
+    grafico = LineChart()
+    grafico.title = "Diferença absoluta por Data-base"
+    grafico.legend = None
+    grafico.width, grafico.height = 24, 9
+    grafico.y_axis.number_format = FORMATO_REAIS
+    # No openpyxl 3.1 os eixos somem no Excel se não forem marcados como visíveis
+    grafico.x_axis.delete = grafico.y_axis.delete = False
+    fim = dados.max_row
+    grafico.add_data(Reference(dados, min_col=2, min_row=1, max_row=fim), titles_from_data=True)
+    grafico.set_categories(Reference(dados, min_col=1, min_row=2, max_row=fim))
+    resumo.add_chart(grafico, f"A{resumo.max_row + 2}")

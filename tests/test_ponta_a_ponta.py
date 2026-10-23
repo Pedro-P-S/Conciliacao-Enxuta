@@ -25,7 +25,7 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
     esperado = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert codigo == 0
     assert capsys.readouterr().out.strip() == str(esperado)
-    assert openpyxl.load_workbook(esperado).sheetnames == ["Resumo"]
+    assert abas_visiveis(openpyxl.load_workbook(esperado)) == ["Resumo"]
 
     conferir_quadro_do_resumo(esperado, gabarito)
 
@@ -43,6 +43,34 @@ def conferir_quadro_do_resumo(caminho, gabarito) -> None:
     assert resumo["Chaves com Diferença"].value == gabarito.chaves_com_diferenca
     for rotulo in ["Tolerância", "Total A", "Total B", "Diferença total", "Diferença absoluta"]:
         assert resumo[rotulo].number_format == FORMATO_REAIS
+
+
+def abas_visiveis(wb) -> list[str]:
+    return [ws.title for ws in wb.worksheets if ws.sheet_state == "visible"]
+
+
+def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_oculta(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    assert wb["_grafico"].sheet_state == "hidden"
+    assert abas_visiveis(wb) == ["Resumo"]
+    linhas = list(wb["_grafico"].iter_rows(values_only=True))
+    assert linhas[0] == ("Data-base", "Diferença absoluta")
+    assert linhas[1:] == [
+        (datetime.combine(data, datetime.min.time()), absoluta / 100) for data, absoluta in gabarito.historico
+    ]
+    assert len(linhas) - 1 == 131  # uma por dia útil de abril a setembro de 2026
+
+    resumo = wb["Resumo"]
+    assert [type(g).__name__ for g in resumo._charts] == ["LineChart"]
+    # Sem tabela de histórico: nenhuma data além da Data-base mais recente no Resumo
+    datas = [c.value for linha in resumo.iter_rows() for c in linha if isinstance(c.value, datetime)]
+    assert datas == [datetime.combine(gabarito.data_base, datetime.min.time())]
+    # O gráfico fica abaixo de tudo o que está escrito no Resumo, com uma linha em branco (âncora começa em 0)
+    assert resumo._charts[0].anchor._from.row > resumo.max_row
 
 
 def avisos_de_data_bases_ignoradas(caminho) -> list[str]:

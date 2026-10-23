@@ -48,6 +48,7 @@ class Gabarito:
     sem_chave_a: SemChave
     sem_chave_b: SemChave
     data_bases_so_em_b: tuple[date, ...]
+    historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -198,6 +199,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         sem_chave_a=_sem_chave(SEM_CHAVE_A),
         sem_chave_b=_sem_chave(SEM_CHAVE_B),
         data_bases_so_em_b=(SO_NA_BASE_B,),
+        historico=tuple((data, sum(abs(d) for d in ds)) for data, ds in plantadas.items()),
     )
 
 
