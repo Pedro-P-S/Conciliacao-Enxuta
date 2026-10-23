@@ -176,7 +176,7 @@ def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_toler
     b = base_com_data_bases(
         {
             1: [("antiga", 0)],
-            2: [("pequena", 10_000), ("dentro", 10_000), ("so_b", 40_000), ("grande", 200_000), ("igual", 500)],
+            2: [("pequena", 10_000), ("dentro", 10_000), ("so_b", 40_000), ("grande", 170_000), ("igual", 500)],
         }
     )
 
@@ -184,7 +184,7 @@ def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_toler
 
     assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo"]
     assert r.operacoes.rows() == [
-        ("grande", 100_000, 200_000, -100_000, "Sem padrão"),
+        ("grande", 100_000, 170_000, -70_000, "Sem padrão"),
         ("so_b", 0, 40_000, -40_000, "Só em B"),
         ("so_a", 30_000, 0, 30_000, "Só em A"),
         ("pequena", 10_200, 10_000, 200, "Sem padrão"),
@@ -227,9 +227,92 @@ def test_tipo_do_erro_e_calculado_so_na_data_base_mais_recente():
 
 def test_por_tipo_do_erro_soma_chaves_e_diferenca_absoluta_da_maior_para_a_menor():
     a = base([("a1", 1_000), ("a2", -2_000), ("p1", 10_000), ("p2", 50_000), ("p3", 1_000)])
-    b = base([("b1", 30_000), ("p1", 9_000), ("p2", 50_000), ("p3", 2_000)])
+    b = base([("b1", 30_000), ("p1", 9_000), ("p2", 50_000), ("p3", 2_300)])
 
     r = conciliar(a, b, tolerancia=100)
 
     assert r.por_tipo.columns == ["Tipo", "Chaves", "Absoluta"]
-    assert r.por_tipo.rows() == [("Só em B", 1, 30_000), ("Só em A", 2, 3_000), ("Sem padrão", 2, 2_000)]
+    assert r.por_tipo.rows() == [("Só em B", 1, 30_000), ("Só em A", 2, 3_000), ("Sem padrão", 2, 2_300)]
+
+
+def tipos(a: pl.DataFrame, b: pl.DataFrame, tolerancia: int = 100) -> dict[str, str]:
+    """{Chave: Tipo do Erro} das Operações com Diferença."""
+    return dict(conciliar(a, b, tolerancia).operacoes.select("Chave", "Tipo").iter_rows())
+
+
+def test_tipo_do_erro_sinal_invertido():
+    a = base([("credito", 50_000), ("debito", -7_300)])
+    b = base([("credito", -50_000), ("debito", 7_300)])
+
+    assert tipos(a, b) == {"credito": "Sinal invertido", "debito": "Sinal invertido"}
+
+
+def test_tipo_do_erro_duplicado_nos_dois_sentidos():
+    a = base([("a_dobro", 20_000), ("b_dobro", -3_500)])
+    b = base([("a_dobro", 10_000), ("b_dobro", -7_000)])
+
+    assert tipos(a, b) == {"a_dobro": "Duplicado", "b_dobro": "Duplicado"}
+
+
+def test_tipo_do_erro_virgula_deslocada_em_cada_fator():
+    # A/B = 10, 100, 1000, 0,1, 0,01 e 0,001
+    a = base(
+        [("x10", 52_300), ("x100", 523_000), ("x1000", -5_230_000), ("d10", 5_230), ("d100", 5_230), ("d1000", 5_230)]
+    )
+    b = base(
+        [("x10", 5_230), ("x100", 5_230), ("x1000", -5_230), ("d10", 52_300), ("d100", 523_000), ("d1000", 5_230_000)]
+    )
+
+    assert tipos(a, b) == dict.fromkeys(["x10", "x100", "x1000", "d10", "d100", "d1000"], "Vírgula deslocada")
+
+
+def test_tipo_do_erro_digitos_trocados_exige_multiplo_de_9_e_os_mesmos_digitos():
+    a = base([("trocados", 12_345), ("so_multiplo_de_9", 10_000), ("so_mesmos_digitos", 1_234)])
+    b = base([("trocados", 13_245), ("so_multiplo_de_9", 10_900), ("so_mesmos_digitos", -4_321)])
+
+    assert tipos(a, b) == {
+        "trocados": "Dígitos trocados",  # Diferença de −900
+        "so_multiplo_de_9": "Sem padrão",  # Diferença de −900, mas outros dígitos
+        "so_mesmos_digitos": "Sem padrão",  # Diferença de 5.555, que não é múltiplo de 9
+    }
+
+
+def test_combinacao_lista_todos_os_tipos_na_ordem_da_spec_e_conta_a_chave_nos_dois():
+    # 251.748 é o dobro de 125.874, com os mesmos dígitos, e a Diferença de 125.874 é múltiplo de 9
+    a = base([("dobro_trocado", 251_748), ("so_a", 3_000)])
+    b = base([("dobro_trocado", 125_874)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert dict(r.operacoes.select("Chave", "Tipo").iter_rows()) == {
+        "dobro_trocado": "Duplicado; Dígitos trocados",
+        "so_a": "Só em A",
+    }
+    assert r.por_tipo.rows() == [("Duplicado", 1, 125_874), ("Dígitos trocados", 1, 125_874), ("Só em A", 1, 3_000)]
+
+
+def test_tolerancia_e_folga_no_sinal_invertido_no_duplicado_e_na_virgula_deslocada():
+    # Tolerância de R$ 5,00: até 500 centavos de folga conta; 501 já não
+    a = base(
+        [
+            ("quase_sinal", 50_000), ("sinal_fora", 50_000),
+            ("quase_dobro", 20_500), ("dobro_fora", 20_501),
+            ("quase_virgula", 100_500), ("virgula_fora", 100_501),
+        ]
+    )
+    b = base(
+        [
+            ("quase_sinal", -49_500), ("sinal_fora", -49_499),
+            ("quase_dobro", 10_000), ("dobro_fora", 10_000),
+            ("quase_virgula", 1_000), ("virgula_fora", 1_000),
+        ]
+    )
+
+    assert tipos(a, b, tolerancia=500) == {
+        "quase_sinal": "Sinal invertido",
+        "sinal_fora": "Sem padrão",
+        "quase_dobro": "Duplicado",
+        "dobro_fora": "Sem padrão",
+        "quase_virgula": "Vírgula deslocada",
+        "virgula_fora": "Sem padrão",
+    }

@@ -341,7 +341,11 @@ NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 
 def test_aba_por_tipo_do_erro_soma_as_chaves_e_a_diferenca_absoluta_de_cada_tipo_com_a_nota(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
-    assert {tipo for tipo, _, _ in gabarito.por_tipo} == {"Só em A", "Só em B", "Sem padrão"}
+    assert {tipo for tipo, _, _ in gabarito.por_tipo} == {
+        "Só em A", "Só em B", "Sinal invertido", "Duplicado", "Vírgula deslocada", "Dígitos trocados", "Sem padrão"
+    }
+    # Uma Chave com dois Tipos conta nos dois
+    assert "Duplicado; Dígitos trocados" in {tipo for *_, tipo in gabarito.operacoes}
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 

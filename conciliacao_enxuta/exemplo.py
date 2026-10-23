@@ -18,7 +18,7 @@ import openpyxl
 import polars as pl
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO as TOLERANCIA
-from conciliacao_enxuta.cruzamento import SemChave
+from conciliacao_enxuta.cruzamento import SEPARADOR_DE_TIPOS, SemChave
 
 PRIMEIRA_DATA_BASE = date(2026, 4, 1)
 DATA_BASE = date(2026, 9, 30)  # a mais recente comum às duas bases
@@ -120,6 +120,17 @@ def _data_do_excel(data: date) -> str:
     return str((data - date(1899, 12, 30)).days)
 
 
+def _digitos_trocados(sorteio: random.Random) -> tuple[int, int]:
+    """Um valor e o mesmo com o dígito do milhar e o da centena trocados: a Diferença passa da Tolerância."""
+    while True:
+        valor = sorteio.randint(10_000, 10_000_000)
+        texto = str(valor)
+        trocado = int(texto[:-4] + texto[-3] + texto[-4] + texto[-2:])
+        if trocado != valor:
+            sinal = sorteio.choice([-1, 1])
+            return sinal * valor, sinal * trocado
+
+
 def _posicao(
     sorteio: random.Random,
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, str]]:
@@ -145,6 +156,23 @@ def _posicao(
         elif caso == 4:  # Só em B
             b[chave] = valor
             diferencas[chave], tipos[chave] = -valor, "Só em B"
+        elif caso == 7:  # Sinal invertido
+            a[chave], b[chave] = valor, -valor
+            diferencas[chave], tipos[chave] = 2 * valor, "Sinal invertido"
+        elif caso == 8:  # Duplicado, num sentido ou no outro
+            a[chave], b[chave] = sorteio.choice([(2 * valor, valor), (valor, 2 * valor)])
+            diferencas[chave], tipos[chave] = a[chave] - b[chave], "Duplicado"
+        elif caso == 9:  # Vírgula deslocada, para mais ou para menos
+            fator = sorteio.choice([10, 100, 1000])
+            a[chave], b[chave] = sorteio.choice([(valor * fator, valor), (valor, valor * fator)])
+            diferencas[chave], tipos[chave] = a[chave] - b[chave], "Vírgula deslocada"
+        elif caso == 0 and i % 20 == 10:  # Dígitos trocados
+            a[chave], b[chave] = _digitos_trocados(sorteio)
+            diferencas[chave], tipos[chave] = a[chave] - b[chave], "Dígitos trocados"
+        elif caso == 0:  # Duplicado e Dígitos trocados: o dobro destes números tem os mesmos dígitos
+            a[chave], b[chave] = sorteio.choice([(251_748, 125_874), (125_874, 251_748), (285_714, 142_857)])
+            diferencas[chave] = a[chave] - b[chave]
+            tipos[chave] = SEPARADOR_DE_TIPOS.join(["Duplicado", "Dígitos trocados"])
         else:
             a[chave] = b[chave] = valor
 
@@ -155,11 +183,15 @@ def _posicao(
 
 
 def _por_tipo(diferencas: dict[str, int], tipos: dict[str, str]) -> tuple[tuple[str, int, int], ...]:
-    """(Tipo, Chaves, Diferença absoluta) de cada Tipo plantado, da maior para a menor Diferença absoluta."""
+    """(Tipo, Chaves, Diferença absoluta) de cada Tipo plantado, da maior para a menor Diferença absoluta.
+
+    Uma Chave com mais de um Tipo conta em cada um.
+    """
     soma: dict[str, tuple[int, int]] = {}
     for chave, diferenca in diferencas.items():
-        chaves, absoluta = soma.get(tipos[chave], (0, 0))
-        soma[tipos[chave]] = (chaves + 1, absoluta + abs(diferenca))
+        for tipo in tipos[chave].split(SEPARADOR_DE_TIPOS):
+            chaves, absoluta = soma.get(tipo, (0, 0))
+            soma[tipo] = (chaves + 1, absoluta + abs(diferenca))
     return tuple(
         sorted(((tipo, chaves, absoluta) for tipo, (chaves, absoluta) in soma.items()), key=lambda t: (-t[2], t[0]))
     )
