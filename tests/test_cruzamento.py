@@ -164,3 +164,29 @@ def test_linhas_sem_chave_contam_so_nas_data_bases_que_entram_no_cruzamento():
 
     assert r.sem_chave_a == SemChave(linhas=2, soma=37)  # sem a Data-base 1, só em A
     assert r.sem_chave_b == SemChave(linhas=1, soma=2_000)  # sem a Data-base 4, só em B
+
+
+def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_tolerancia_da_maior_para_a_menor():
+    a = base_com_data_bases(
+        {
+            1: [("antiga", 900_000)],
+            2: [("pequena", 10_200), ("dentro", 10_100), ("so_a", 30_000), ("grande", 100_000), ("igual", 500)],
+        }
+    )
+    b = base_com_data_bases(
+        {
+            1: [("antiga", 0)],
+            2: [("pequena", 10_000), ("dentro", 10_000), ("so_b", 40_000), ("grande", 200_000), ("igual", 500)],
+        }
+    )
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca"]
+    assert r.operacoes.rows() == [
+        ("grande", 100_000, 200_000, -100_000),
+        ("so_b", 0, 40_000, -40_000),
+        ("so_a", 30_000, 0, 30_000),
+        ("pequena", 10_200, 10_000, 200),
+    ]
+    assert r.operacoes.height == r.chaves_com_diferenca

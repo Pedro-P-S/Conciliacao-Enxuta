@@ -59,5 +59,23 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
     ws.column_dimensions["B"].width = 20
     ws.column_dimensions["C"].width = 20
 
+    _aba_operacoes(wb, resultado)
+
     wb.save(caminho)
     return caminho
+
+
+def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
+    """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro."""
+    ws = wb.create_sheet("Operações com Diferença")
+    for coluna, titulo in enumerate(["Chave", "Valor A", "Valor B", "Diferença"], start=1):
+        ws.cell(1, coluna, titulo).font = Font(bold=True)
+    for linha, (chave, a, b, diferenca) in enumerate(resultado.operacoes.iter_rows(), start=2):
+        ws.cell(linha, 1, chave)
+        for coluna, centavos in enumerate((a, b, diferenca), start=2):
+            ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:D{resultado.operacoes.height + 1}"
+    ws.column_dimensions["A"].width = 24
+    for letra in "BCD":
+        ws.column_dimensions[letra].width = 18

@@ -25,7 +25,7 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
     esperado = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert codigo == 0
     assert capsys.readouterr().out.strip() == str(esperado)
-    assert openpyxl.load_workbook(esperado).sheetnames == ["Resumo"]
+    assert openpyxl.load_workbook(esperado).sheetnames == ["Resumo", "Operações com Diferença"]
 
     resumo = ler_resumo(esperado)
     assert resumo["Data-base mais recente"].value == datetime.combine(gabarito.data_base, datetime.min.time())
@@ -183,3 +183,22 @@ def test_base_vazia_tambem_da_a_mensagem_simples(tmp_path, capsys):
     assert main(["conciliar", str(base_a), str(base_b)]) == 1
     assert capsys.readouterr().err.strip() == "A Base A e a Base B não têm nenhuma Data-base em comum."
     assert not list(tmp_path.glob("*.xlsx"))
+
+
+def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_da_maior_para_a_menor(
+    tmp_path, capsys
+):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    linhas = list(ws.iter_rows())
+    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença"]
+    assert [tuple(c.value for c in linha) for linha in linhas[1:]] == [
+        (chave, a / 100, b / 100, d / 100) for chave, a, b, d in gabarito.operacoes
+    ]
+    assert len(linhas) - 1 == gabarito.chaves_com_diferenca
+    assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:])
+    assert ws.freeze_panes == "A2"
+    assert ws.auto_filter.ref == f"A1:D{gabarito.chaves_com_diferenca + 1}"
