@@ -66,8 +66,9 @@ class Resultado:
     # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
     # Uma Chave com mais de um Tipo conta em cada um.
     por_tipo: pl.DataFrame
-    # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
-    por_idade: tuple[tuple[str, int, int], ...]
+    # Por faixa de Idade da Diferença: (Faixa, Chaves, Linhas sem Chave, Diferença absoluta das duas), as 5 sempre,
+    # na ordem de FAIXAS_DE_IDADE. A soma das faixas é a Diferença absoluta.
+    por_idade: tuple[tuple[str, int, int, int], ...]
     # Por Atributo e valor, só os valores com Diferença acima do peso: Atributo, Valor, Absoluta (soma das
     # |Diferença| das Chaves) e AcimaDoPeso (fração da Diferença absoluta − fração do peso no total), decrescente.
     # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
@@ -283,16 +284,42 @@ def _por_atributo(
     )
 
 
-def _por_idade(operacoes: pl.DataFrame, data_base: date) -> tuple[tuple[str, int, int], ...]:
-    """Chaves e Diferença absoluta de cada faixa de Idade: dias corridos do Aberta desde até a Data-base mais recente."""
+def _desde_das_soltas(soltas: pl.DataFrame, comuns: list[date]) -> pl.DataFrame:
+    """Diferenca e Desde de cada linha sem Chave com Diferença na Data-base mais recente.
+
+    O mesmo valor entre as linhas sem Chave da mesma base, nas Data-bases seguintes, é o mesmo lançamento: o Desde é
+    a primeira Data-base da sequência contínua em que ele aparece, até a mais recente, como o Aberta desde.
+    """
+    lancamento = pl.concat_str("Base", "Diferenca", separator=" ").alias("Chave")
+    desde = _aberta_desde(soltas.select(lancamento, "Data").unique(), comuns)
+    return (
+        soltas.filter(pl.col("Data") == comuns[-1])
+        .with_columns(lancamento)
+        .join(desde, on="Chave", how="left")
+        .select("Diferenca", "Desde")
+    )
+
+
+def _por_idade(
+    operacoes: pl.DataFrame, soltas: pl.DataFrame, data_base: date
+) -> tuple[tuple[str, int, int, int], ...]:
+    """Chaves, linhas sem Chave e Diferença absoluta das duas em cada faixa de Idade.
+
+    A Idade são os dias corridos do Desde (o Aberta desde, nas Chaves) até a Data-base mais recente.
+    """
     idade = (pl.lit(data_base) - pl.col("Desde")).dt.total_days()
+
+    def na_faixa(linhas: pl.DataFrame, piso: int, teto: int | None) -> pl.DataFrame:
+        linhas = linhas.filter(idade >= piso)
+        return linhas if teto is None else linhas.filter(idade <= teto)
+
     faixas, piso = [], 0
     for nome, teto in FAIXAS_DE_IDADE:
-        na_faixa = operacoes.filter(idade >= piso)
+        chaves, linhas = na_faixa(operacoes, piso, teto), na_faixa(soltas, piso, teto)
+        absoluta = chaves["Diferenca"].abs().sum() + linhas["Diferenca"].abs().sum()
+        faixas.append((nome, chaves.height, linhas.height, int(absoluta)))
         if teto is not None:
-            na_faixa = na_faixa.filter(idade <= teto)
             piso = teto + 1
-        faixas.append((nome, na_faixa.height, int(na_faixa["Diferenca"].abs().sum())))
     return tuple(faixas)
 
 
@@ -328,14 +355,14 @@ def conciliar(
     # Cada linha sem Chave é uma Diferença do valor inteiro: +Valor em A, −Valor em B, uma linha por vez
     soltas = pl.concat(
         [
-            sem_chave_a.select("Data", pl.col("Valor").alias("Diferenca")),
-            sem_chave_b.select("Data", (-pl.col("Valor")).alias("Diferenca")),
+            sem_chave_a.select("Data", pl.col("Valor").alias("Diferenca"), pl.lit("A").alias("Base")),
+            sem_chave_b.select("Data", (-pl.col("Valor")).alias("Diferenca"), pl.lit("B").alias("Base")),
         ]
-    ).filter(pl.col("Diferenca").abs() > tolerancia)
+    ).filter(pl.col("Data").is_in(comuns), pl.col("Diferenca").abs() > tolerancia)
     soltas_na_mais_recente = soltas.filter(pl.col("Data") == data_base)["Diferenca"]
 
     absoluta_por_data = dict(
-        pl.concat([com_diferenca.select("Data", "Diferenca"), soltas])
+        pl.concat([com_diferenca.select("Data", "Diferenca"), soltas.select("Data", "Diferenca")])
         .group_by("Data")
         .agg(pl.col("Diferenca").abs().sum())
         .iter_rows()
@@ -372,7 +399,7 @@ def conciliar(
         operacoes=operacoes,
         atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),
         por_tipo=_por_tipo(operacoes),
-        por_idade=_por_idade(operacoes, data_base),
+        por_idade=_por_idade(operacoes, _desde_das_soltas(soltas, comuns), data_base),
         por_atributo=_por_atributo(
             cruzado.filter(pl.col("Data") == data_base), a_na_mais_recente, b_na_mais_recente, tolerancia
         ),

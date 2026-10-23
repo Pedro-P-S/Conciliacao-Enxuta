@@ -115,9 +115,12 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     return caminho
 
 
-def _rotulo_da_faixa(faixa: str, chaves: int) -> str:
-    """`31 a 90 dias (12 Chaves)`; `1 Chave` no singular."""
-    return f"{faixa} ({_milhar(chaves)} {'Chave' if chaves == 1 else 'Chaves'})"
+def _rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
+    """`31 a 90 dias (12 Chaves)`, ou `91 a 365 dias (12 Chaves, 1 linha sem Chave)` quando há linhas sem Chave."""
+    rotulo = f"{faixa} ({_milhar(chaves)} {'Chave' if chaves == 1 else 'Chaves'}"
+    if linhas:
+        rotulo += f", {_milhar(linhas)} {'linha' if linhas == 1 else 'linhas'} sem Chave"
+    return rotulo + ")"
 
 
 def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
@@ -135,8 +138,8 @@ def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
 
     dados.cell(1, 4, "Idade da Diferença")
     dados.cell(1, 5, "Diferença absoluta")
-    for linha, (faixa, chaves, absoluta) in enumerate(resultado.por_idade, start=2):
-        dados.cell(linha, 4, _rotulo_da_faixa(faixa, chaves))
+    for linha, (faixa, chaves, linhas, absoluta) in enumerate(resultado.por_idade, start=2):
+        dados.cell(linha, 4, _rotulo_da_faixa(faixa, chaves, linhas))
         dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
     fim_das_barras = len(resultado.por_idade) + 1
 

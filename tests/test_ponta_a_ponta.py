@@ -86,16 +86,18 @@ def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
-    # As 5 faixas sempre, mesmo vazias, com as Chaves no rótulo; "1 Chave" no singular
+    # As 5 faixas sempre, mesmo vazias, com as Chaves no rótulo; "1 Chave" no singular. As 3 linhas sem Chave, que
+    # se repetem desde a primeira Data-base, caem em 91 a 365 dias e entram no rótulo dela.
     barras = list(wb["_grafico"].iter_rows(min_col=4, max_col=5, max_row=6, values_only=True))
     assert barras == [
         ("Idade da Diferença", "Diferença absoluta"),
-        ("Até 30 dias (1 Chave)", gabarito.por_idade[0][2] / 100),
-        ("31 a 90 dias (1 Chave)", gabarito.por_idade[1][2] / 100),
-        ("91 a 365 dias (138 Chaves)", gabarito.por_idade[2][2] / 100),
+        ("Até 30 dias (1 Chave)", gabarito.por_idade[0][3] / 100),
+        ("31 a 90 dias (1 Chave)", gabarito.por_idade[1][3] / 100),
+        ("91 a 365 dias (138 Chaves, 3 linhas sem Chave)", gabarito.por_idade[2][3] / 100),
         ("366 dias a 5 anos (0 Chaves)", 0),
         ("Mais de 5 anos (0 Chaves)", 0),
     ]
+    assert sum(absoluta for _, absoluta in barras[1:]) == pytest.approx(gabarito.diferenca_absoluta / 100)
     # Os dados da linha continuam nas colunas A e B
     assert wb["_grafico"]["A1"].value == "Data-base"
 
@@ -103,6 +105,19 @@ def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha
     assert [type(g).__name__ for g in resumo._charts] == ["BarChart", "LineChart"]
     barras_no_resumo, linha_no_resumo = resumo._charts
     assert resumo.max_row < barras_no_resumo.anchor._from.row < linha_no_resumo.anchor._from.row
+
+
+def test_rotulo_da_faixa_traz_1_linha_sem_chave_no_singular_e_nao_muda_sem_elas(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    # Chave 1 com Diferença de 10,00 e uma linha sem Chave de 5,00 em A, ambas abertas na própria Data-base
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,110.00\n,2026-09-30,5.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,100.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.strip().splitlines()[0])
+    barras = list(wb["_grafico"].iter_rows(min_row=2, min_col=4, max_col=5, max_row=3, values_only=True))
+    assert barras == [("Até 30 dias (1 Chave, 1 linha sem Chave)", 15.00), ("31 a 90 dias (0 Chaves)", 0)]
 
 
 def avisos_de_data_bases_ignoradas(caminho) -> list[str]:
@@ -496,11 +511,10 @@ FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", 
 def test_resumo_nao_tem_tabela_de_idade_e_os_avisos_vem_logo_abaixo_do_quadro(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
     # As plantadas caem em até 30, 31 a 90 e 91 a 365 dias; as duas últimas faixas ficam vazias
-    assert [nome for nome, _, _ in gabarito.por_idade] == FAIXAS
-    assert sum(chaves for _, chaves, _ in gabarito.por_idade) == gabarito.chaves_com_diferenca
-    # As linhas sem Chave ainda não têm Idade: as faixas somam a Diferença absoluta das Chaves
-    sem_chave = sum(abs(d) for d in DIFERENCAS_SEM_CHAVE)
-    assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta - sem_chave
+    assert [nome for nome, *_ in gabarito.por_idade] == FAIXAS
+    assert sum(chaves for _, chaves, _, _ in gabarito.por_idade) == gabarito.chaves_com_diferenca
+    assert sum(linhas for _, _, linhas, _ in gabarito.por_idade) == len(DIFERENCAS_SEM_CHAVE)
+    assert sum(absoluta for *_, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 

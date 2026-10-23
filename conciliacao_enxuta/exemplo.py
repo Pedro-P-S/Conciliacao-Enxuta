@@ -98,7 +98,8 @@ class Gabarito:
     # (Atributo, Valor, Diferença absoluta, Diferença acima do peso), só os acima do peso, do maior para o menor
     por_atributo: tuple[tuple[str, str, int, float], ...]
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
-    por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
+    # (Faixa de Idade, Chaves, Linhas sem Chave, Diferença absoluta), as 5 em ordem
+    por_idade: tuple[tuple[str, int, int, int], ...]
     linha_sem_chave: dict[str, str]  # o texto da coluna Linha sem Chave das Chaves que casam
 
 
@@ -277,16 +278,20 @@ def _por_tipo(diferencas: dict[str, int], tipos: dict[str, str]) -> tuple[tuple[
     )
 
 
-def _por_idade(diferencas: dict[str, int], aberta_desde: dict[str, date]) -> tuple[tuple[str, int, int], ...]:
-    """(Faixa, Chaves, Diferença absoluta) das 5 faixas de Idade, em ordem, mesmo vazias."""
+def _por_idade(diferencas: dict[str, int], aberta_desde: dict[str, date]) -> tuple[tuple[str, int, int, int], ...]:
+    """(Faixa, Chaves, Linhas sem Chave, Diferença absoluta) das 5 faixas de Idade, em ordem, mesmo vazias.
+
+    As linhas sem Chave se repetem em toda Data-base: contam desde a primeira.
+    """
     tetos = {"Até 30 dias": 30, "31 a 90 dias": 90, "91 a 365 dias": 365, "366 dias a 5 anos": 1826}  # 5 anos
-    soma = {faixa: (0, 0) for faixa in [*tetos, "Mais de 5 anos"]}
-    for chave, diferenca in diferencas.items():
-        idade = (DATA_BASE - aberta_desde[chave]).days
-        faixa = next((faixa for faixa, teto in tetos.items() if idade <= teto), "Mais de 5 anos")
-        chaves, absoluta = soma[faixa]
-        soma[faixa] = (chaves + 1, absoluta + abs(diferenca))
-    return tuple((faixa, chaves, absoluta) for faixa, (chaves, absoluta) in soma.items())
+    soma = {faixa: (0, 0, 0) for faixa in [*tetos, "Mais de 5 anos"]}
+    idades = [(DATA_BASE - aberta_desde[chave], 1, 0, d) for chave, d in diferencas.items()]
+    idades += [(DATA_BASE - PRIMEIRA_DATA_BASE, 0, 1, d) for d in DIFERENCAS_SEM_CHAVE]
+    for idade, chave, linha, diferenca in idades:
+        faixa = next((faixa for faixa, teto in tetos.items() if idade.days <= teto), "Mais de 5 anos")
+        chaves, linhas, absoluta = soma[faixa]
+        soma[faixa] = (chaves + chave, linhas + linha, absoluta + abs(diferenca))
+    return tuple((faixa, *somas) for faixa, somas in soma.items())
 
 
 def _aberta_desde(chave: str, plantadas: dict[date, dict[str, int]]) -> date:

@@ -402,11 +402,11 @@ def test_bordas_das_faixas_de_idade():
     r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
 
     assert r.por_idade == (
-        ("Até 30 dias", 1, 3_000),
-        ("31 a 90 dias", 2, 3_100 + 9_000),
-        ("91 a 365 dias", 2, 9_100 + 36_500),
-        ("366 dias a 5 anos", 2, 36_600 + 182_600),
-        ("Mais de 5 anos", 1, 182_700),
+        ("Até 30 dias", 1, 0, 3_000),
+        ("31 a 90 dias", 2, 0, 3_100 + 9_000),
+        ("91 a 365 dias", 2, 0, 9_100 + 36_500),
+        ("366 dias a 5 anos", 2, 0, 36_600 + 182_600),
+        ("Mais de 5 anos", 1, 0, 182_700),
     )
 
 
@@ -415,7 +415,7 @@ def test_diferenca_aberta_na_propria_data_base_mais_recente_tem_idade_zero():
 
     r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
 
-    assert r.por_idade[0] == ("Até 30 dias", 1, 5_000)
+    assert r.por_idade[0] == ("Até 30 dias", 1, 0, 5_000)
 
 
 def test_faixas_de_idade_somam_as_chaves_com_diferenca_e_a_diferenca_absoluta():
@@ -424,14 +424,58 @@ def test_faixas_de_idade_somam_as_chaves_com_diferenca_e_a_diferenca_absoluta():
 
     r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
 
-    assert [nome for nome, _, _ in r.por_idade] == [
+    assert [nome for nome, *_ in r.por_idade] == [
         "Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"
     ]
-    assert sum(chaves for _, chaves, _ in r.por_idade) == r.chaves_com_diferenca == 4
-    assert sum(absoluta for _, _, absoluta in r.por_idade) == r.diferenca_absoluta == 20_000
-    assert r.por_idade[1] == ("31 a 90 dias", 0, 0)
-    assert r.por_idade[3] == ("366 dias a 5 anos", 0, 0)
-    assert r.por_idade[4] == ("Mais de 5 anos", 1, 4_000)  # 3.000 dias: a faixa que a conta der, mesmo "ou antes"
+    assert sum(chaves for _, chaves, _, _ in r.por_idade) == r.chaves_com_diferenca == 4
+    assert sum(absoluta for *_, absoluta in r.por_idade) == r.diferenca_absoluta == 20_000
+    assert r.por_idade[1] == ("31 a 90 dias", 0, 0, 0)
+    assert r.por_idade[3] == ("366 dias a 5 anos", 0, 0, 0)
+    assert r.por_idade[4] == ("Mais de 5 anos", 1, 0, 4_000)  # 3.000 dias: a faixa que a conta der, mesmo "ou antes"
+
+
+def test_linha_sem_chave_repetida_nas_data_bases_seguintes_conta_desde_a_primeira():
+    # A Chave "" é uma linha sem Chave: o mesmo valor em toda Data-base desde 200 dias antes é o mesmo lançamento.
+    # A Chave "zero", sem Diferença, faz da Data-base de 200 dias antes uma Data-base comum.
+    a = abertas_ha({"x": (10, 5_000), "zero": (200, 0), "": (200, 7_000)})
+
+    r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
+
+    assert r.por_idade == (
+        ("Até 30 dias", 1, 0, 5_000),
+        ("31 a 90 dias", 0, 0, 0),
+        ("91 a 365 dias", 0, 1, 7_000),
+        ("366 dias a 5 anos", 0, 0, 0),
+        ("Mais de 5 anos", 0, 0, 0),
+    )
+
+
+def test_linha_sem_chave_que_some_e_volta_conta_desde_a_volta():
+    # 400 dias antes está; 200 dias antes some; volta 60 dias antes e fica até a mais recente
+    datas = {400: [("x", 0), ("", 7_000)], 200: [("x", 0)], 60: [("x", 0), ("", 7_000)], 0: [("x", 0), ("", 7_000)]}
+    a = pl.concat([base(linhas, DIA - timedelta(dias)) for dias, linhas in datas.items()])
+
+    r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
+
+    assert r.por_idade[1] == ("31 a 90 dias", 0, 1, 7_000)
+    assert sum(linhas for _, _, linhas, _ in r.por_idade) == 1
+
+
+def test_faixas_somam_as_chaves_as_linhas_sem_chave_e_a_diferenca_absoluta_do_resumo():
+    # Na Base B, a linha sem Chave entra com −Valor; a de 50, dentro da Tolerância, fica fora da Idade
+    a = abertas_ha({"x": (10, 5_000), "zero": (200, 0), "": (200, 7_000), " ": (10, 50)})
+    b = pl.concat([base_b_nas_mesmas_datas(a), base([("", 3_000), ("  ", 2_000)])])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_idade == (
+        ("Até 30 dias", 1, 2, 5_000 + 3_000 + 2_000),
+        ("31 a 90 dias", 0, 0, 0),
+        ("91 a 365 dias", 0, 1, 7_000),
+        ("366 dias a 5 anos", 0, 0, 0),
+        ("Mais de 5 anos", 0, 0, 0),
+    )
+    assert sum(absoluta for *_, absoluta in r.por_idade) == r.diferenca_absoluta == 17_000
 
 
 def base_com_atributos(linhas: list[tuple[str, int, dict[str, str | None]]], data: date = DIA) -> pl.DataFrame:
