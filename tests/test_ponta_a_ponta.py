@@ -326,14 +326,16 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     linhas = list(ws.iter_rows())
-    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    assert [c.value for c in linhas[0]] == [
+        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto", "Filial"
+    ]
     assert [tuple(c.value for c in linha[:5]) for linha in linhas[1:]] == [
         (chave, a / 100, b / 100, d / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
     ]
     assert len(linhas) - 1 == gabarito.chaves_com_diferenca
     assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:4])
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == f"A1:F{gabarito.chaves_com_diferenca + 1}"
+    assert ws.auto_filter.ref == f"A1:H{gabarito.chaves_com_diferenca + 1}"
 
 
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
@@ -462,3 +464,37 @@ def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(
     # Os avisos vêm depois das faixas
     primeiro_aviso = next(i for i, r in enumerate(rotulos) if isinstance(r, str) and r.startswith("Chaves com Diferença desde"))
     assert primeiro_aviso > inicio + 5
+
+
+@pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
+def test_operacoes_mostram_os_atributos_com_o_nome_do_arquivo_e_o_valor_de_b_quando_a_esta_vazio(
+    tmp_path, capsys, formato
+):
+    gabarito = gerar_bases_exemplo(tmp_path, formato)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    cabecalho = [c.value for c in ws[1]]
+    assert cabecalho[6:] == ["Produto", "Filial"]
+    mostrado = {
+        linha[0]: dict(zip(cabecalho[6:], linha[6:])) for linha in ws.iter_rows(min_row=2, values_only=True)
+    }
+    assert mostrado == gabarito.atributos
+    # Produto vazio em A vem de B; a Filial só existe em B; a Chave só em A com Produto vazio fica sem nada
+    assert mostrado["C00021"] == {"Produto": "Débito", "Filial": "02"}
+    assert mostrado["C00004"] == {"Produto": "Crédito", "Filial": "05"}  # Só em B
+    assert mostrado["C00063"] == {"Produto": None, "Filial": None}  # Só em A
+    assert mostrado["C00013"] == {"Produto": "Débito", "Filial": None}  # Só em A
+
+
+def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,90.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    assert [c.value for c in ws[1]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    assert ws.auto_filter.ref == "A1:F2"
