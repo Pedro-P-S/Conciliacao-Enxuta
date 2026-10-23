@@ -62,6 +62,7 @@ class Gabarito:
     aberta_desde: dict[str, date]  # das Chaves das operações
     abertas_desde_a_primeira: int
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
+    por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -211,6 +212,18 @@ def _por_tipo(diferencas: dict[str, int], tipos: dict[str, str]) -> tuple[tuple[
     )
 
 
+def _por_idade(diferencas: dict[str, int], aberta_desde: dict[str, date]) -> tuple[tuple[str, int, int], ...]:
+    """(Faixa, Chaves, Diferença absoluta) das 5 faixas de Idade, em ordem, mesmo vazias."""
+    tetos = {"Até 30 dias": 30, "31 a 90 dias": 90, "91 a 365 dias": 365, "366 dias a 5 anos": 1826}  # 5 anos
+    soma = {faixa: (0, 0) for faixa in [*tetos, "Mais de 5 anos"]}
+    for chave, diferenca in diferencas.items():
+        idade = (DATA_BASE - aberta_desde[chave]).days
+        faixa = next((faixa for faixa, teto in tetos.items() if idade <= teto), "Mais de 5 anos")
+        chaves, absoluta = soma[faixa]
+        soma[faixa] = (chaves + 1, absoluta + abs(diferenca))
+    return tuple((faixa, chaves, absoluta) for faixa, (chaves, absoluta) in soma.items())
+
+
 def _aberta_desde(chave: str, plantadas: dict[date, dict[str, int]]) -> date:
     """A primeira Data-base da sequência de Data-bases seguidas, até a mais recente, em que a Chave tem Diferença."""
     desde = DATA_BASE
@@ -284,6 +297,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
             )
         ),
         por_tipo=_por_tipo(diferencas, tipos),
+        por_idade=_por_idade(diferencas, aberta_desde),
         aberta_desde=aberta_desde,
         abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
     )

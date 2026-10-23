@@ -39,8 +39,18 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
 
-    # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
+    # A Idade da Diferença, uma linha abaixo do quadro: as 5 faixas sempre, mesmo vazias
     linha = len(quadro) + 2
+    for coluna, titulo in enumerate(["Idade da Diferença", "Chaves", "Diferença absoluta"], start=1):
+        ws.cell(linha, coluna, titulo).font = Font(bold=True)
+    for faixa, chaves, absoluta in resultado.por_idade:
+        linha += 1
+        ws.cell(linha, 1, faixa)
+        ws.cell(linha, 2, chaves).number_format = FORMATO_INTEIRO
+        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
+
+    # Avisos, só quando acontecem, a partir de uma linha abaixo das faixas
+    linha += 2
     if resultado.abertas_desde_a_primeira:
         primeira = resultado.historico[0][0]
         ws.cell(

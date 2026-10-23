@@ -10,6 +10,14 @@ import polars as pl
 TOLERANCIA_PADRAO = 100  # centavos: R$ 1,00
 SEM_PADRAO = "Sem padrão"
 SEPARADOR_DE_TIPOS = "; "
+# Faixas da Idade da Diferença, em ordem: (nome, maior Idade em dias da faixa; None = sem limite)
+FAIXAS_DE_IDADE = (
+    ("Até 30 dias", 30),
+    ("31 a 90 dias", 90),
+    ("91 a 365 dias", 365),
+    ("366 dias a 5 anos", 1826),  # 5 anos = 5 × 365 + 1 dia de ano bissexto
+    ("Mais de 5 anos", None),
+)
 
 
 class SemDataBaseComum(Exception):
@@ -51,6 +59,8 @@ class Resultado:
     # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
     # Uma Chave com mais de um Tipo conta em cada um.
     por_tipo: pl.DataFrame
+    # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
+    por_idade: tuple[tuple[str, int, int], ...]
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -135,6 +145,19 @@ def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _por_idade(operacoes: pl.DataFrame, data_base: date) -> tuple[tuple[str, int, int], ...]:
+    """Chaves e Diferença absoluta de cada faixa de Idade: dias corridos do Aberta desde até a Data-base mais recente."""
+    idade = (pl.lit(data_base) - pl.col("Desde")).dt.total_days()
+    faixas, piso = [], 0
+    for nome, teto in FAIXAS_DE_IDADE:
+        na_faixa = operacoes.filter(idade >= piso)
+        if teto is not None:
+            na_faixa = na_faixa.filter(idade <= teto)
+            piso = teto + 1
+        faixas.append((nome, na_faixa.height, int(na_faixa["Diferenca"].abs().sum())))
+    return tuple(faixas)
+
+
 def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Resultado:
     """Cruza as bases em cada Data-base comum às duas; os totais são os da mais recente.
 
@@ -185,4 +208,5 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         operacoes=operacoes,
         abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),
         por_tipo=_por_tipo(operacoes),
+        por_idade=_por_idade(operacoes, data_base),
     )
