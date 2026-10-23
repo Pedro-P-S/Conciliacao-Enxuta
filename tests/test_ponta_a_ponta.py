@@ -64,7 +64,7 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert wb["_grafico"].sheet_state == "hidden"
     assert abas_visiveis(wb) == ABAS
-    linhas = list(wb["_grafico"].iter_rows(values_only=True))
+    linhas = list(wb["_grafico"].iter_rows(max_col=2, values_only=True))
     assert linhas[0] == ("Data-base", "Diferença absoluta")
     assert linhas[1:] == [
         (datetime.combine(data, datetime.min.time()), absoluta / 100) for data, absoluta in gabarito.historico
@@ -72,12 +72,37 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
     assert len(linhas) - 1 == 131  # uma por dia útil de abril a setembro de 2026
 
     resumo = wb["Resumo"]
-    assert [type(g).__name__ for g in resumo._charts] == ["LineChart"]
+    assert [type(g).__name__ for g in resumo._charts][-1] == "LineChart"
     # Sem tabela de histórico: nenhuma data além da Data-base mais recente no Resumo
     datas = [c.value for linha in resumo.iter_rows() for c in linha if isinstance(c.value, datetime)]
     assert datas == [datetime.combine(gabarito.data_base, datetime.min.time())]
     # O gráfico fica abaixo de tudo o que está escrito no Resumo, com uma linha em branco (âncora começa em 0)
-    assert resumo._charts[0].anchor._from.row > resumo.max_row
+    assert resumo._charts[-1].anchor._from.row > resumo.max_row
+
+
+def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    # As 5 faixas sempre, mesmo vazias, com as Chaves no rótulo; "1 Chave" no singular
+    barras = list(wb["_grafico"].iter_rows(min_col=4, max_col=5, max_row=6, values_only=True))
+    assert barras == [
+        ("Idade da Diferença", "Diferença absoluta"),
+        ("Até 30 dias (1 Chave)", gabarito.por_idade[0][2] / 100),
+        ("31 a 90 dias (1 Chave)", gabarito.por_idade[1][2] / 100),
+        ("91 a 365 dias (138 Chaves)", gabarito.por_idade[2][2] / 100),
+        ("366 dias a 5 anos (0 Chaves)", 0),
+        ("Mais de 5 anos (0 Chaves)", 0),
+    ]
+    # Os dados da linha continuam nas colunas A e B
+    assert wb["_grafico"]["A1"].value == "Data-base"
+
+    resumo = wb["Resumo"]
+    assert [type(g).__name__ for g in resumo._charts] == ["BarChart", "LineChart"]
+    barras_no_resumo, linha_no_resumo = resumo._charts
+    assert resumo.max_row < barras_no_resumo.anchor._from.row < linha_no_resumo.anchor._from.row
 
 
 def avisos_de_data_bases_ignoradas(caminho) -> list[str]:
@@ -447,11 +472,11 @@ def test_aberta_desde_mostra_a_ultima_abertura_e_ou_antes_quando_vem_da_primeira
 
 
 def avisos_do_resumo(caminho) -> list[str]:
-    """Os textos da coluna A do Resumo abaixo das faixas de Idade (a última é Mais de 5 anos) e acima dos Atributos
+    """Os textos da coluna A do Resumo abaixo do quadro (o último é Chaves com Diferença) e acima dos Atributos
     Problemáticos, na ordem."""
     textos = [c.value for c in openpyxl.load_workbook(caminho)["Resumo"]["A"] if isinstance(c.value, str)]
     fim = textos.index(TITULO_PROBLEMATICOS) if TITULO_PROBLEMATICOS in textos else len(textos)
-    return textos[textos.index("Mais de 5 anos") + 1 : fim]
+    return textos[textos.index("Chaves com Diferença") + 1 : fim]
 
 
 def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path, capsys):
@@ -468,31 +493,25 @@ def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path
 FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"]
 
 
-def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(tmp_path, capsys):
+def test_resumo_nao_tem_tabela_de_idade_e_os_avisos_vem_logo_abaixo_do_quadro(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
     # As plantadas caem em até 30, 31 a 90 e 91 a 365 dias; as duas últimas faixas ficam vazias
     assert [nome for nome, _, _ in gabarito.por_idade] == FAIXAS
-    assert [chaves for _, chaves, _ in gabarito.por_idade][3:] == [0, 0]
-    assert all(chaves for _, chaves, _ in gabarito.por_idade[:3])
-
-    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
-
-    linhas = list(openpyxl.load_workbook(capsys.readouterr().out.strip())["Resumo"].iter_rows(min_col=1, max_col=3))
-    rotulos = [linha[0].value for linha in linhas]
-    inicio = rotulos.index("Idade da Diferença")
-    assert inicio > rotulos.index("Chaves com Diferença")
-    assert [c.value for c in linhas[inicio][1:]] == ["Chaves", "Diferença absoluta"]
-    faixas = linhas[inicio + 1 : inicio + 6]
-    assert [(f.value, chaves.value, absoluta.value) for f, chaves, absoluta in faixas] == [
-        (nome, chaves, absoluta / 100) for nome, chaves, absoluta in gabarito.por_idade
-    ]
-    assert all(absoluta.number_format == FORMATO_REAIS for _, _, absoluta in faixas)
-    assert sum(chaves.value for _, chaves, _ in faixas) == gabarito.chaves_com_diferenca
+    assert sum(chaves for _, chaves, _ in gabarito.por_idade) == gabarito.chaves_com_diferenca
     # As linhas sem Chave ainda não têm Idade: as faixas somam a Diferença absoluta das Chaves
     sem_chave = sum(abs(d) for d in DIFERENCAS_SEM_CHAVE)
     assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta - sem_chave
-    # Os avisos vêm depois das faixas
-    assert rotulos.index(AVISO_SEM_CHAVE) > inicio + 5
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Resumo"]
+    textos = [c.value for linha in ws.iter_rows() for c in linha if isinstance(c.value, str)]
+    assert "Idade da Diferença" not in textos
+    assert not any(texto.startswith(faixa) for texto in textos for faixa in FAIXAS)
+    # Quadro nas linhas 1 a 7, uma em branco, e os avisos
+    assert ws["A7"].value == "Chaves com Diferença"
+    assert ws["A8"].value is None
+    assert ws["A9"].value == AVISO_SEM_CHAVE
 
 
 @pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])

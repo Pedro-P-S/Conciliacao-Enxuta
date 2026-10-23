@@ -6,7 +6,7 @@ from pathlib import Path
 
 import openpyxl
 import polars as pl
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
@@ -72,18 +72,8 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
 
-    # A Idade da Diferença, uma linha abaixo do quadro: as 5 faixas sempre, mesmo vazias
+    # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
     linha = len(quadro) + 2
-    for coluna, titulo in enumerate(["Idade da Diferença", "Chaves", "Diferença absoluta"], start=1):
-        ws.cell(linha, coluna, titulo).font = Font(bold=True)
-    for faixa, chaves, absoluta in resultado.por_idade:
-        linha += 1
-        ws.cell(linha, 1, faixa)
-        ws.cell(linha, 2, chaves).number_format = FORMATO_INTEIRO
-        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
-
-    # Avisos, só quando acontecem, a partir de uma linha abaixo das faixas
-    linha += 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
         for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)
@@ -119,14 +109,20 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     _aba_por_atributo(wb, resultado)
     _aba_operacoes(wb, resultado, limite, aviso_de_corte)
     _aba_erros(wb, resultado, limite)
-    _grafico_da_diferenca(wb, ws, resultado)
+    _graficos(wb, ws, resultado)
 
     wb.save(caminho)
     return caminho
 
 
-def _grafico_da_diferenca(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
-    """Gráfico de linha da Diferença absoluta por Data-base, abaixo de tudo no Resumo; os dados vão na aba oculta `_grafico`."""
+def _rotulo_da_faixa(faixa: str, chaves: int) -> str:
+    """`31 a 90 dias (12 Chaves)`; `1 Chave` no singular."""
+    return f"{faixa} ({_milhar(chaves)} {'Chave' if chaves == 1 else 'Chaves'})"
+
+
+def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
+    """Abaixo de tudo no Resumo, o gráfico de barras da Idade e, abaixo dele, o de linha da Diferença absoluta por
+    Data-base. Os dados vão na aba oculta `_grafico`: a linha nas colunas A e B, as barras nas colunas D e E."""
     dados = wb.create_sheet("_grafico")
     dados.sheet_state = "hidden"
     dados.append(["Data-base", "Diferença absoluta"])
@@ -135,18 +131,35 @@ def _grafico_da_diferenca(wb: openpyxl.Workbook, resumo, resultado: Resultado) -
         linha = dados.max_row
         dados.cell(linha, 1).number_format = FORMATO_DATA
         dados.cell(linha, 2).number_format = FORMATO_REAIS
+    fim_da_linha = dados.max_row
 
-    grafico = LineChart()
-    grafico.title = "Diferença absoluta por Data-base"
-    grafico.legend = None
-    grafico.width, grafico.height = 24, 9
-    grafico.y_axis.number_format = FORMATO_REAIS
-    # No openpyxl 3.1 os eixos somem no Excel se não forem marcados como visíveis
-    grafico.x_axis.delete = grafico.y_axis.delete = False
-    fim = dados.max_row
-    grafico.add_data(Reference(dados, min_col=2, min_row=1, max_row=fim), titles_from_data=True)
-    grafico.set_categories(Reference(dados, min_col=1, min_row=2, max_row=fim))
-    resumo.add_chart(grafico, f"A{resumo.max_row + 2}")
+    dados.cell(1, 4, "Idade da Diferença")
+    dados.cell(1, 5, "Diferença absoluta")
+    for linha, (faixa, chaves, absoluta) in enumerate(resultado.por_idade, start=2):
+        dados.cell(linha, 4, _rotulo_da_faixa(faixa, chaves))
+        dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
+    fim_das_barras = len(resultado.por_idade) + 1
+
+    barras = BarChart()
+    barras.title = "Diferença absoluta por Idade da Diferença"
+    barras.add_data(Reference(dados, min_col=5, min_row=1, max_row=fim_das_barras), titles_from_data=True)
+    barras.set_categories(Reference(dados, min_col=4, min_row=2, max_row=fim_das_barras))
+
+    linha_no_tempo = LineChart()
+    linha_no_tempo.title = "Diferença absoluta por Data-base"
+    linha_no_tempo.add_data(Reference(dados, min_col=2, min_row=1, max_row=fim_da_linha), titles_from_data=True)
+    linha_no_tempo.set_categories(Reference(dados, min_col=1, min_row=2, max_row=fim_da_linha))
+
+    for grafico in (barras, linha_no_tempo):
+        grafico.legend = None
+        grafico.width, grafico.height = 24, 9
+        grafico.y_axis.number_format = FORMATO_REAIS
+        # No openpyxl 3.1 os eixos somem no Excel se não forem marcados como visíveis
+        grafico.x_axis.delete = grafico.y_axis.delete = False
+
+    inicio = resumo.max_row + 2
+    resumo.add_chart(barras, f"A{inicio}")
+    resumo.add_chart(linha_no_tempo, f"A{inicio + 20}")  # 9 cm de altura ocupam umas 17 linhas
 
 
 def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
