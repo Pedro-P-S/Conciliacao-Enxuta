@@ -187,7 +187,7 @@ def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_toler
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo", "Desde", "OuAntes"]
+    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo", "Desde", "OuAntes", "Casa"]
     assert r.operacoes.select("Chave", "A", "B", "Diferenca", "Tipo").rows() == [
         ("grande", 100_000, 170_000, -70_000, "Sem padrão"),
         ("so_b", 0, 40_000, -40_000, "Só em B"),
@@ -674,3 +674,87 @@ def test_invariante_vale_com_as_linhas_sem_chave():
     dentro_da_tolerancia = 50 + 60 + 90  # Chave 1 e as duas linhas sem Chave pequenas (+60 em A, −(−90) em B)
     assert r.diferenca_total == -10_000 + 30_000 - 4_000
     assert r.total_a - r.total_b == r.diferenca_total + dentro_da_tolerancia
+
+
+def casas(r, chave: str) -> list[tuple[int, date, str]] | None:
+    """As linhas sem Chave que casam com a Chave: (Valor, Data-base comparada, base), ou None."""
+    casa = r.operacoes.filter(pl.col("Chave") == chave)["Casa"][0]
+    return None if casa is None else [(c["Valor"], c["Data"], c["Base"]) for c in casa]
+
+
+def test_linha_sem_chave_na_base_a_e_na_base_b_casam_cada_uma_com_o_seu_sinal():
+    # Chave "a": Diferença −5.000; a linha de +5.000 na Base A a zera. Chave "b": +3.000; a de +3.000 na Base B.
+    a = base([("a", 10_000), ("b", 8_000), ("", 5_000)])
+    b = base([("a", 15_000), ("b", 5_000), ("", 3_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert casas(r, "a") == [(5_000, DIA, "A")]
+    assert casas(r, "b") == [(3_000, DIA, "B")]
+    assert r.operacoes.filter(pl.col("Chave") == "a")["Tipo"][0] == "Casa com linha sem Chave"
+
+
+def test_casa_dentro_da_folga_da_tolerancia_e_nao_casa_logo_acima():
+    # Diferenças −5.000 e −5.000; a linha de 4.900 em A fica a 100 da primeira (casa) e 101 da segunda (não casa)
+    a = base([("dentro", 10_000), ("acima", 9_999), ("", 4_900)])
+    b = base([("dentro", 15_000), ("acima", 15_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert casas(r, "dentro") == [(4_900, DIA, "A")]
+    assert casas(r, "acima") is None
+
+
+def test_compara_na_primeira_data_base_da_linha_e_nao_de_novo_nas_seguintes():
+    # Dia 1: Chave x com −5.000; dia 2 aparece a linha de 5.000 em A (Diferença de x ainda −5.000): casa no dia 2.
+    # Dia 3: a mesma linha e a Diferença de x mudou para −7.000. No dia 3, y tem −5.000, mas a linha não é
+    # comparada de novo: y não casa.
+    a = base_com_data_bases(
+        {1: [("x", 10_000)], 2: [("x", 10_000), ("", 5_000)], 3: [("x", 10_000), ("y", 0), ("", 5_000)]}
+    )
+    b = base_com_data_bases({1: [("x", 15_000)], 2: [("x", 15_000)], 3: [("x", 17_000), ("y", 5_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert casas(r, "x") == [(5_000, dia(2), "A")]
+    assert casas(r, "y") is None
+    assert r.operacoes.filter(pl.col("Chave") == "x")["Tipo"][0] == "Casa com linha sem Chave"
+
+
+def test_chave_sem_diferenca_na_data_base_da_linha_nao_ganha_o_tipo():
+    # Dia 1: x bate e a linha de 5.000 em B aparece; dia 2: x abre +5.000, mas a linha já foi comparada no dia 1
+    a = base_com_data_bases({1: [("x", 10_000)], 2: [("x", 15_000)]})
+    b = base_com_data_bases({1: [("x", 10_000), ("", 5_000)], 2: [("x", 10_000), ("", 5_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert casas(r, "x") is None
+    assert r.operacoes["Tipo"].to_list() == ["Sem padrão"]
+
+
+def test_uma_linha_que_casa_com_duas_chaves_da_o_tipo_as_duas_e_uma_chave_pode_ter_varias_linhas():
+    a = base([("x", 10_000), ("y", 20_000), ("", 3_000)])
+    b = base([("x", 7_000), ("y", 17_050), ("", 3_000), ("", 2_980)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert casas(r, "x") == [(2_980, DIA, "B"), (3_000, DIA, "B")]
+    assert casas(r, "y") == [(2_980, DIA, "B"), (3_000, DIA, "B")]
+
+
+def test_casa_com_linha_sem_chave_convive_com_os_outros_tipos_e_tira_o_sem_padrao():
+    # x: só em A com 5.000, e a linha de 5.000 em B casa; z: Sem padrão sem linha que case
+    a = base([("x", 5_000), ("z", 1_000)])
+    b = base([("z", 3_000), ("", 5_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes.select("Chave", "Tipo").rows() == [
+        ("x", "Só em A; Casa com linha sem Chave"),
+        ("z", "Sem padrão"),
+    ]
+    assert dict(r.por_tipo.select("Tipo", "Chaves").rows()) == {
+        "Só em A": 1,
+        "Casa com linha sem Chave": 1,
+        "Sem padrão": 1,
+    }

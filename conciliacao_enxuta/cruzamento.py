@@ -51,8 +51,9 @@ class Resultado:
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
-    # As Chaves com Diferença da Data-base mais recente: Chave, A, B, Diferenca, Tipo, Desde (o Aberta desde)
-    # e OuAntes (o Aberta desde é a primeira Data-base comum), por |Diferença| decrescente.
+    # As Chaves com Diferença da Data-base mais recente: Chave, A, B, Diferenca, Tipo, Desde (o Aberta desde),
+    # OuAntes (o Aberta desde é a primeira Data-base comum) e Casa (as linhas sem Chave que casam com a Chave:
+    # lista de Valor, Data e Base "A" ou "B", em ordem de Data; nula quando nenhuma), por |Diferença| decrescente.
     # O lado ausente vale 0. É DataFrame porque a lista pode ter centenas de milhares de linhas.
     operacoes: pl.DataFrame
     # Os Atributos de cada linha de `operacoes`, na mesma ordem, com o nome original: primeiro os de A, depois
@@ -96,7 +97,7 @@ def _sem_chave(fora: pl.DataFrame, data_base: date) -> SemChave:
 def _tipo_do_erro(tolerancia: int) -> pl.Expr:
     """Todos os Tipos que se aplicam, separados por `; ` na ordem da spec; Sem padrão quando nenhum se aplica.
 
-    Espera as colunas A e B antes de o lado ausente virar 0 (nulo = a Chave não está naquela base).
+    Espera as colunas A e B antes de o lado ausente virar 0 (nulo = a Chave não está naquela base) e a Casa.
     A Tolerância é a folga nas comparações de Sinal invertido, Duplicado e Vírgula deslocada.
     """
     a, b = pl.col("A").fill_null(0), pl.col("B").fill_null(0)
@@ -121,6 +122,7 @@ def _tipo_do_erro(tolerancia: int) -> pl.Expr:
             "Dígitos trocados",
             (pl.col("Diferenca") % 9 == 0) & (a.abs() != b.abs()) & (digitos(a) == digitos(b)),
         ),
+        ("Casa com linha sem Chave", pl.col("Casa").is_not_null()),
     ]
     juntos = pl.concat_str(
         [pl.when(condicao).then(pl.lit(nome)) for nome, condicao in tipos],
@@ -128,6 +130,39 @@ def _tipo_do_erro(tolerancia: int) -> pl.Expr:
         ignore_nulls=True,
     )
     return pl.when(juntos == "").then(pl.lit(SEM_PADRAO)).otherwise(juntos).alias("Tipo")
+
+
+def _casas(
+    com_diferenca: pl.DataFrame,
+    sem_chave_a: pl.DataFrame,
+    sem_chave_b: pl.DataFrame,
+    comuns: list[date],
+    tolerancia: int,
+) -> pl.DataFrame:
+    """Chave e Casa: as linhas sem Chave que zeram, dentro da Tolerância, a Diferença que a Chave tinha.
+
+    Cada valor de linha sem Chave de uma base é comparado uma vez só, na primeira Data-base comum em que aparece;
+    nas seguintes, é o mesmo lançamento. Na Base A, casa quando Diferença ≈ −Valor; na Base B, Diferença ≈ Valor.
+    """
+    linhas = (
+        pl.concat(
+            [
+                sem_chave_a.select("Data", "Valor", pl.lit("A").alias("Base"), (-pl.col("Valor")).alias("Alvo")),
+                sem_chave_b.select("Data", "Valor", pl.lit("B").alias("Base"), pl.col("Valor").alias("Alvo")),
+            ]
+        )
+        .filter(pl.col("Data").is_in(comuns))
+        .group_by("Base", "Valor")
+        .agg(pl.col("Data").min(), pl.col("Alvo").first())
+    )
+    return (
+        com_diferenca.select("Chave", "Data", "Diferenca")
+        .join(linhas, on="Data")
+        .filter((pl.col("Diferenca") - pl.col("Alvo")).abs() <= tolerancia)
+        .sort("Data", "Base", "Valor")
+        .group_by("Chave", maintain_order=True)
+        .agg(pl.struct("Valor", "Data", "Base").alias("Casa"))
+    )
 
 
 def _aberta_desde(com_diferenca: pl.DataFrame, comuns: list[date]) -> pl.DataFrame:
@@ -278,10 +313,14 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
     a_na_mais_recente = base_a.filter(pl.col("Data") == data_base)
     b_na_mais_recente = base_b.filter(pl.col("Data") == data_base)
     operacoes = (
-        na_mais_recente.select(
-            "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro(tolerancia)
+        na_mais_recente.join(
+            _casas(com_diferenca, sem_chave_a, sem_chave_b, comuns, tolerancia), on="Chave", how="left"
+        )
+        .select(
+            "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro(tolerancia), "Casa"
         )
         .join(_aberta_desde(com_diferenca, comuns), on="Chave", how="left")
+        .select("Chave", "A", "B", "Diferenca", "Tipo", "Desde", "OuAntes", "Casa")
         .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
     )
 

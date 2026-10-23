@@ -35,6 +35,18 @@ def _milhar(numero: int) -> str:
     return f"{numero:,}".replace(",", ".")
 
 
+def _linha_sem_chave(casa: list[dict] | None) -> str | None:
+    """As linhas sem Chave que casam com a Chave, como `−10.000,00 em 15/03/2026 na Base B`, separadas por `; `."""
+    if not casa:
+        return None
+    textos = []
+    for linha in casa:
+        reais, centavos = divmod(abs(linha["Valor"]), 100)
+        sinal = "−" if linha["Valor"] < 0 else ""
+        textos.append(f"{sinal}{_milhar(reais)},{centavos:02d} em {linha['Data']:%d/%m/%Y} na Base {linha['Base']}")
+    return "; ".join(textos)
+
+
 def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
     """Grava `conciliacao_AAAA-MM-DD.xlsx` em `pasta`, sobrescrevendo, e devolve o caminho.
 
@@ -167,8 +179,8 @@ def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, aviso_de_corte: str | None) -> None:
     """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro.
 
-    Depois do Aberta desde vêm os Atributos, com o nome original. Mostra só as `limite` primeiras (as
-    maiores); quando há corte, o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
+    Depois do Aberta desde vêm a Linha sem Chave e os Atributos, com o nome original. Mostra só as `limite`
+    primeiras (as maiores); quando há corte, o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
     """
     ws = wb.create_sheet("Operações com Diferença")
     linha_do_cabecalho = 1
@@ -177,18 +189,21 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
         linha_do_cabecalho = 2
     # Operações e Atributos se alinham pela ordem das linhas: cortam juntos
     operacoes, atributos = resultado.operacoes.head(limite), resultado.atributos.head(limite)
-    titulos = ["Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde"]
+    titulos = [
+        "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Linha sem Chave"
+    ]
     primeiro_atributo = len(titulos) + 1
     titulos += atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
-    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
+    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes, casa) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
         ws.cell(linha, 1, chave)
         # Valor A e Valor B com o sinal; a Diferença sem
         for coluna, centavos in enumerate((a, b, abs(diferenca)), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 5, tipo)
         ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
+        ws.cell(linha, 7, _linha_sem_chave(casa))
     for coluna, atributo in enumerate(atributos.iter_columns(), start=primeiro_atributo):
         for linha, valor in enumerate(atributo, start=linha_do_cabecalho + 1):
             ws.cell(linha, coluna, valor)
@@ -200,3 +215,4 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
         ws.column_dimensions[letra].width = 18
     ws.column_dimensions["E"].width = 24
     ws.column_dimensions["F"].width = 22
+    ws.column_dimensions["G"].width = 36
