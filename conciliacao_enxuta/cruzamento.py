@@ -8,6 +8,7 @@ from datetime import date
 import polars as pl
 
 TOLERANCIA_PADRAO = 100  # centavos: R$ 1,00
+QUANTOS_PROBLEMATICOS = 5
 SEM_PADRAO = "Sem padrão"
 SEPARADOR_DE_TIPOS = "; "
 # Faixas da Idade da Diferença, em ordem: (nome, maior Idade em dias da faixa; None = sem limite)
@@ -67,6 +68,11 @@ class Resultado:
     # |Diferença| das Chaves) e AcimaDoPeso (fração da Diferença absoluta − fração do peso no total), decrescente.
     # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
+
+    @property
+    def atributos_problematicos(self) -> pl.DataFrame:
+        """As 5 primeiras linhas de `por_atributo`, misturando Atributos; menos se a tabela tiver menos."""
+        return self.por_atributo.head(QUANTOS_PROBLEMATICOS)
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -203,7 +209,8 @@ def _por_atributo(
     vazia = pl.DataFrame(
         schema={"Atributo": pl.String, "Valor": pl.String, "Absoluta": pl.Int64, "AcimaDoPeso": pl.Float64}
     )
-    if not atributos.columns:
+    # Sem Diferença, nenhum valor passa do peso (e a % da Diferença absoluta seria 0/0)
+    if not atributos.columns or absoluta_total == 0:
         return vazia
     return (
         pl.concat([chaves, atributos], how="horizontal")

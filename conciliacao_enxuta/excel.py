@@ -18,6 +18,7 @@ FORMATO_DATA = "DD/MM/YYYY"
 FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
 FORMATO_PERCENTUAL = "0.00%"
+TITULO_PROBLEMATICOS = "Atributos Problemáticos"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 LIMITE_DE_LINHAS = 700_000
 
@@ -92,9 +93,16 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     for linha, aviso in enumerate(avisos, start=linha):
         ws.cell(linha, 1, aviso)
 
+    # Os Atributos Problemáticos, uma linha abaixo dos avisos; sem Atributo acima do peso, a tabela não aparece
+    if resultado.atributos_problematicos.height:
+        linha = ws.max_row + 2
+        ws.cell(linha, 1, TITULO_PROBLEMATICOS).font = Font(bold=True)
+        _tabela_por_atributo(ws, linha + 1, resultado.atributos_problematicos)
+
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 20
     ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 22
 
     _aba_por_tipo(wb, resultado)
     _aba_por_atributo(wb, resultado)
@@ -150,18 +158,22 @@ def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
     Sem Atributo nas bases, fica só o cabeçalho.
     """
     ws = wb.create_sheet("Por Atributo")
-    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"], start=1):
-        ws.cell(1, coluna, titulo).font = Font(bold=True)
-    linhas = resultado.por_atributo.iter_rows()
-    for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(linhas, start=2):
-        ws.cell(linha, 1, atributo)
-        ws.cell(linha, 2, valor)
-        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
+    _tabela_por_atributo(ws, 1, resultado.por_atributo)
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 24
     ws.column_dimensions["C"].width = 20
     ws.column_dimensions["D"].width = 16
+
+
+def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela) -> None:
+    """Cabeçalho e linhas de uma tabela no formato de `Resultado.por_atributo`, a partir de `linha_do_cabecalho`."""
+    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"], start=1):
+        ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
+    for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
+        ws.cell(linha, 1, atributo)
+        ws.cell(linha, 2, valor)
+        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
 
 
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, aviso_de_corte: str | None) -> None:

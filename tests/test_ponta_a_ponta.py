@@ -14,6 +14,7 @@ from conciliacao_enxuta.leitura import ler_base
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
 CABECALHO_POR_ATRIBUTO = ["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"]
+TITULO_PROBLEMATICOS = "Atributos Problemáticos"
 ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença"]
 
 
@@ -412,9 +413,11 @@ def test_aberta_desde_mostra_a_ultima_abertura_e_ou_antes_quando_vem_da_primeira
 
 
 def avisos_do_resumo(caminho) -> list[str]:
-    """Os textos da coluna A do Resumo abaixo das faixas de Idade (a última é Mais de 5 anos), na ordem."""
+    """Os textos da coluna A do Resumo abaixo das faixas de Idade (a última é Mais de 5 anos) e acima dos Atributos
+    Problemáticos, na ordem."""
     textos = [c.value for c in openpyxl.load_workbook(caminho)["Resumo"]["A"] if isinstance(c.value, str)]
-    return textos[textos.index("Mais de 5 anos") + 1 :]
+    fim = textos.index(TITULO_PROBLEMATICOS) if TITULO_PROBLEMATICOS in textos else len(textos)
+    return textos[textos.index("Mais de 5 anos") + 1 : fim]
 
 
 def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path, capsys):
@@ -527,6 +530,52 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert abas_visiveis(wb) == ABAS
     assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [CABECALHO_POR_ATRIBUTO]
+
+
+def ler_problematicos(caminho) -> list | None:
+    """As linhas da tabela de Atributos Problemáticos do Resumo (sem o cabeçalho), ou None se ela não aparece."""
+    linhas = list(openpyxl.load_workbook(caminho)["Resumo"].iter_rows(min_col=1, max_col=4))
+    inicio = next((i for i, linha in enumerate(linhas) if linha[0].value == TITULO_PROBLEMATICOS), None)
+    if inicio is None:
+        return None
+    assert [c.value for c in linhas[inicio + 1]] == CABECALHO_POR_ATRIBUTO
+    corpo = []
+    for linha in linhas[inicio + 2 :]:
+        if linha[0].value is None:
+            break
+        corpo.append(linha)
+    return corpo
+
+
+def test_resumo_mostra_os_atributos_problematicos_do_gabarito_depois_dos_avisos(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    linhas = ler_problematicos(caminho)
+    mostrado = [tuple(c.value for c in linha) for linha in linhas]
+    esperado = gabarito.por_atributo[:5]
+    assert [linha[:3] for linha in mostrado] == [(atributo, valor, absoluta / 100) for atributo, valor, absoluta, _ in esperado]
+    assert [linha[3] for linha in mostrado] == pytest.approx([acima for _, _, _, acima in esperado])
+    assert mostrado[0][:2] == ("Carteira", "Legado")
+    assert all(linha[2].number_format == FORMATO_REAIS and linha[3].number_format == FORMATO_PERCENTUAL for linha in linhas)
+    # Depois dos avisos
+    coluna_a = [c.value for c in openpyxl.load_workbook(caminho)["Resumo"]["A"]]
+    assert coluna_a.index(TITULO_PROBLEMATICOS) > coluna_a.index(AVISO_SEM_CHAVE)
+    ultimo_aviso = max(i for i, v in enumerate(coluna_a) if isinstance(v, str) and v.startswith("Data-bases ignoradas"))
+    assert coluna_a.index(TITULO_PROBLEMATICOS) > ultimo_aviso
+
+
+def test_sem_atributo_acima_do_peso_o_resumo_nao_tem_atributos_problematicos(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    # A única Chave tem toda a Diferença e todo o peso: BRL fica com Diferença acima do peso 0
+    base_a.write_text("Chave,Data,Valor,Moeda\n1,2026-09-30,10.00,BRL\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,90.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    assert ler_problematicos(capsys.readouterr().out.strip()) is None
 
 
 def gravar_com_limite(base_a, base_b, pasta, limite):

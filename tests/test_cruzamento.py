@@ -601,6 +601,47 @@ def test_valor_que_todas_as_chaves_tem_e_os_abaixo_do_peso_nao_aparecem():
     assert r.por_atributo.select("Atributo", "Valor").rows() == [("Carteira", "Legado")]
 
 
+def test_atributos_problematicos_sao_as_5_primeiras_linhas_por_atributo_misturando_atributos():
+    # 7 valores acima do peso, cada um com 1.000 de peso; o Produto P fica no meio dos valores do Canal
+    diferencas = {"V1": 60_000, "V2": 50_000, "V3": 40_000, "V4": 30_000, "V5": 20_000, "V6": 10_000}
+    a = base_com_atributos(
+        [(valor, 1_000, {"Canal": valor}) for valor in diferencas]
+        + [("p", 1_000, {"Produto": "P"}), ("grande", 1_000_000, {"Canal": "W"})]
+    )
+    b = base(
+        [(valor, 1_000 + diferenca) for valor, diferenca in diferencas.items()]
+        + [("p", 46_000), ("grande", 1_000_000)]
+    )
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.height == 7
+    assert r.atributos_problematicos.columns == ["Atributo", "Valor", "Absoluta", "AcimaDoPeso"]
+    assert r.atributos_problematicos.select("Atributo", "Valor", "Absoluta").rows() == [
+        ("Canal", "V1", 60_000),
+        ("Canal", "V2", 50_000),
+        ("Produto", "P", 45_000),
+        ("Canal", "V3", 40_000),
+        ("Canal", "V4", 30_000),
+    ]
+    assert r.atributos_problematicos["AcimaDoPeso"][0] == pytest.approx(60 / 255 - 1_000 / 1_007_000)
+
+
+def test_com_menos_de_5_valores_acima_do_peso_vem_todos_e_com_nenhum_vem_vazio():
+    linhas_a = [
+        ("legado", 1_000, {"Carteira": "Legado"}),
+        ("atual_1", 100_000, {"Carteira": "Atual"}),
+        ("atual_2", 100_000, {"Carteira": "Atual"}),
+    ]
+    b = base([("legado", 51_000), ("atual_1", 50_000), ("atual_2", 100_000)])
+    um = conciliar(base_com_atributos(linhas_a), b, tolerancia=100)
+    # Sem Diferença nenhuma, nenhum valor passa do peso
+    nenhum = conciliar(base_com_atributos(linhas_a), base_com_atributos(linhas_a), tolerancia=100)
+
+    assert um.atributos_problematicos.select("Atributo", "Valor").rows() == [("Carteira", "Legado")]
+    assert nenhum.atributos_problematicos.height == 0
+
+
 def test_peso_no_total_e_o_valor_a_absoluto_e_cai_para_o_valor_b_quando_a_e_zero():
     a = base_com_atributos(
         [
