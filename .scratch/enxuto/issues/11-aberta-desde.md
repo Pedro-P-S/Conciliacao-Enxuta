@@ -13,7 +13,7 @@
 - [x] Operações com Diferença: a coluna Aberta desde mostra `DD/MM/AAAA` ou `DD/MM/AAAA ou antes`.
 - [x] Resumo: o aviso de Chaves abertas desde a primeira Data-base aparece só quando há alguma, com a quantidade, e é o primeiro da lista de avisos (ordem da spec: Aberta desde a primeira Data-base, linhas sem Chave, Data-bases ignoradas, corte).
 - [x] O gerador de exemplo planta Chaves que somem e voltam, que mudam de valor e que já existem na primeira Data-base; o teste de ponta a ponta confere o Aberta desde e o aviso contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre o `exemplo\` de seis meses e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) o Aberta desde das Chaves plantadas (some e volta, muda de valor, "ou antes") e o aviso no Resumo.
 
 **Notas de entrega:**

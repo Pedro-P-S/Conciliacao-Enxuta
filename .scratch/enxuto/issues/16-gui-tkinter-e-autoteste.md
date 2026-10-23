@@ -11,7 +11,7 @@
 - [x] A janela tem os campos e botões da spec; no fim mostra o caminho e um botão que abre a pasta do resultado.
 - [x] Com `CONCILIACAO_AUTOTESTE=1`, a GUI monta escondida, fecha sozinha e sai com 0; um teste roda esse autoteste em subprocesso e confere o código de saída. Nenhum teste abre a janela sem essa variável.
 - [x] A GUI abre por um ponto de entrada simples do pacote (por exemplo, `python -m conciliacao_enxuta` sem subcomando), registrado nas notas de entrega.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: com `CONCILIACAO_AUTOTESTE=1`, rodar a GUI e conferir que sai com 0; chamar `gui_estado` com as bases de `exemplo\` e Tolerância `1,00` e conferir que o caminho devolvido existe e é o da pasta da Base A (`PYTHONIOENCODING=utf-8`).
 
 **Notas de entrega:**

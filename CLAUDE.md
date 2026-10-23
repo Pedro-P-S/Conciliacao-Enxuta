@@ -34,10 +34,10 @@ Guias, não leis. Na dúvida, eles decidem.
 ## Comandos
 
 ```bash
-..\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q
+C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q
 ```
 
-Por enquanto usa o `.venv` do projeto grande; não instale nem atualize pacotes nele.
+O `.venv` é do projeto, com os pacotes de `requirements.txt`. O caminho é absoluto porque os worktrees (`.claude\worktrees\<nome>\`) não têm `.venv`.
 
 ## Agentes
 

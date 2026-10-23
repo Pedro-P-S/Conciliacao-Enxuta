@@ -12,7 +12,7 @@
 - [x] Operações com Diferença: depois de Aberta desde vêm todos os Atributos (de A e de B, sem repetir nomes iguais), com o nome original no cabeçalho, cobertos pelo filtro.
 - [x] Bases sem nenhum Atributo continuam funcionando.
 - [x] O gerador de exemplo inclui Atributos (por exemplo, Produto e Filial) com um Atributo só em B e valores vazios em A; o teste de ponta a ponta confere as colunas e valores contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: regenerar `exemplo\` com Atributos, rodar a CLI e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que as Operações com Diferença mostram os Atributos com o nome do arquivo e o valor de B quando A está vazio.
 
 **Notas de entrega:**

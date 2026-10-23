@@ -10,7 +10,7 @@
 - [x] O traceback é acrescentado (não sobrescrito) em `erros.log` dentro de `%LOCALAPPDATA%\ConciliacaoEnxuta\`, criando a pasta se não existir; nos testes, a pasta do log é redirecionada para uma pasta temporária.
 - [x] A janela mostra a mensagem sem traceback e continua aberta para nova tentativa.
 - [x] O autoteste continua saindo com 0.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: chamar `gui_estado` com uma cópia de base de `exemplo\` sem a coluna `Valor` e conferir a mensagem simples; provocar um erro inesperado com o log apontando para uma pasta temporária e conferir que o traceback foi gravado lá e não aparece na mensagem (`PYTHONIOENCODING=utf-8`); por fim rodar a GUI com `CONCILIACAO_AUTOTESTE=1` e conferir a saída 0.
 
 **Notas de entrega:**

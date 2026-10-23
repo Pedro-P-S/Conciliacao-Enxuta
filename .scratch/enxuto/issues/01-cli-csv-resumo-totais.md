@@ -15,7 +15,7 @@
 - [x] No Resumo os valores em reais têm o formato `#.##0,00` (convertidos de centavos só no Excel).
 - [x] Gerador de bases de exemplo com gabarito (totais e Chaves com Diferença esperados); teste de ponta a ponta (seam 2) gera os arquivos, roda a CLI, lê o `.xlsx` com openpyxl e confere o Resumo contra o gabarito.
 - [x] Nada é importado do pacote do projeto grande; peças copiadas e adaptadas são aceitas.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: criar `exemplo\` com o gerador (Base A e Base B em `.csv`), rodar a CLI sobre eles, abrir o `.xlsx` gerado com openpyxl (com `PYTHONIOENCODING=utf-8`) e conferir que o Resumo mostra os totais esperados e o caminho impresso é o da pasta da Base A.
 
 **Notas de entrega:**

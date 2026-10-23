@@ -12,7 +12,7 @@
 - [x] Resumo: totais e nome do arquivo usam a Data-base mais recente comum; o aviso de Data-bases ignoradas aparece só quando há alguma e diz quais são e de qual base.
 - [x] Sem Data-base comum, a mensagem é simples e nenhum `.xlsx` é gerado.
 - [x] O gerador de exemplo passa a gerar várias Data-bases (dias úteis de alguns meses) e uma Data-base só numa base; o teste de ponta a ponta confere contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: regenerar `exemplo\` com seis meses de dias úteis e uma Data-base extra só na Base B, rodar a CLI e conferir (openpyxl, `PYTHONIOENCODING=utf-8`) que o nome do arquivo e o Resumo usam a maior Data-base comum e que o aviso lista a Data-base ignorada.
 
 **Notas de entrega:**

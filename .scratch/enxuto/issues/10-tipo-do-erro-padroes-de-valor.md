@@ -12,7 +12,7 @@
 - [x] Seam 1: Dígitos trocados exige as duas condições (múltiplo de 9 e mesmos dígitos); só uma não basta.
 - [x] A aba Por Tipo do Erro conta uma Chave com dois Tipos nos dois.
 - [x] O gerador de exemplo planta cada padrão no gabarito; o teste de ponta a ponta confere a coluna Tipo do Erro e a aba Por Tipo do Erro.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: regenerar `exemplo\` com os padrões plantados, rodar a CLI e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que cada Chave plantada mostra o Tipo certo nas Operações com Diferença e que a aba Por Tipo do Erro tem uma linha por Tipo presente.
 
 **Notas de entrega:**

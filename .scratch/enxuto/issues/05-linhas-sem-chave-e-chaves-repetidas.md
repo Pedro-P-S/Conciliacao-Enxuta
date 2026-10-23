@@ -11,7 +11,7 @@
 - [x] Resumo: o aviso de linhas sem Chave aparece só quando há alguma, com a quantidade e a soma (em reais, `#.##0,00`) de cada base; sem linhas sem Chave, nenhum aviso.
 - [x] A invariante continua valendo com Chaves repetidas.
 - [x] O gerador de exemplo planta Chaves repetidas e linhas sem Chave; o teste de ponta a ponta confere o aviso e os totais contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: regenerar `exemplo\` com linhas sem Chave e uma Chave repetida, rodar a CLI e conferir no Resumo (openpyxl, `PYTHONIOENCODING=utf-8`) o aviso com quantidade e soma por base e os totais com a Chave repetida somada.
 
 **Notas de entrega:**

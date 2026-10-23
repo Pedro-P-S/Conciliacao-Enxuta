@@ -11,7 +11,7 @@
 - [x] Sem corte, não há aviso e o cabeçalho fica na linha 1.
 - [x] Resumo: o aviso de corte aparece só quando há corte e é o último dos avisos.
 - [x] O teste de ponta a ponta usa o limite reduzido por parâmetro e confere aviso, cabeçalho, ordem e quantidade de linhas.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: gerar o Excel de `exemplo\` com o limite reduzido (chamando o módulo `excel` com limite pequeno) e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) o aviso na linha 1, o cabeçalho na linha 2 e o aviso de corte no Resumo.
 
 **Notas de entrega:**

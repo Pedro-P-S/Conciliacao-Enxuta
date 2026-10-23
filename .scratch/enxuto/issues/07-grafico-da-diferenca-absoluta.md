@@ -10,7 +10,7 @@
 - [x] A aba `_grafico` existe, está oculta e tem uma linha por Data-base comum, em ordem de data; o Resumo não tem tabela de histórico.
 - [x] As abas visíveis continuam sendo só as da spec (a oculta não conta para as 4).
 - [x] O teste de ponta a ponta confere a existência do gráfico, a aba oculta e os valores dela contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre o `exemplo\` de seis meses e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que o Resumo tem um gráfico de linha, que `_grafico` está oculta e que ela tem uma linha por Data-base comum.
 
 **Notas de entrega:**

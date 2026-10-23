@@ -13,7 +13,7 @@
 - [x] Aba `Por Atributo`: colunas Atributo, Valor, Diferença (reais, com sinal) e % da Diferença (formato percentual), sem coluna de Concentração e sem filtro.
 - [x] Bases sem Atributo geram a aba só com o cabeçalho (o Excel continua com as 4 abas).
 - [x] O gerador de exemplo planta um Atributo concentrado e um que todas as Chaves têm; o teste de ponta a ponta confere a ordem e os valores contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre `exemplo\` e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que a aba Por Atributo mostra no topo o valor plantado como concentrado e que o valor que todas as Chaves têm não aparece como suspeito.
 
 **Notas de entrega:**

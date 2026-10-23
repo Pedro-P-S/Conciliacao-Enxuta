@@ -11,7 +11,7 @@
 - [x] Seam 1: a soma das Chaves e da Diferença absoluta das 5 faixas é igual a Chaves com Diferença e à Diferença absoluta do Resumo.
 - [x] Resumo: as 5 faixas aparecem sempre (mesmo vazias), na ordem da spec, com Chaves e Diferença absoluta em reais, abaixo do quadro de totais e acima dos avisos.
 - [x] O teste de ponta a ponta confere as faixas contra o gabarito do gerador de exemplo.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre o `exemplo\` de seis meses e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que as 5 faixas aparecem no Resumo e que os totais delas batem com Chaves com Diferença e Diferença absoluta.
 
 **Notas de entrega:**

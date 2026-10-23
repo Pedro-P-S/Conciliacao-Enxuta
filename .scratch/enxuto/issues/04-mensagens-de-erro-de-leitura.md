@@ -12,7 +12,7 @@
 - [x] Um Valor ou Data vazio numa linha com Chave é tratado como erro com arquivo e linha (decisão do implementador registrada nas notas de entrega, se divergir).
 - [x] A CLI mostra só a mensagem (sem traceback) e sai com código diferente de 0; nenhum `.xlsx` é gerado.
 - [x] Testes de ponta a ponta para cada mensagem, conferindo o texto.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: em `exemplo\`, criar uma cópia da Base A sem a coluna `Valor` e outra com um valor `abc` numa linha; rodar a CLI com cada uma (`PYTHONIOENCODING=utf-8`) e conferir que a tela mostra uma mensagem simples, com arquivo, linha e conteúdo, e nenhum traceback.
 
 **Notas de entrega:**

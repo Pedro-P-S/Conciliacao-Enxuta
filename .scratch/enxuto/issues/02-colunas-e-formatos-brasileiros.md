@@ -11,7 +11,7 @@
 - [x] Datas `31/01/2026`, `2026-01-31` e data do Excel viram a mesma Data-base.
 - [x] A Chave é lida como texto e sem espaço nas pontas, de modo que ` 123 ` em A cruza com `123` em B.
 - [x] O gerador de exemplo passa a escrever as bases com valores e datas no formato brasileiro e nomes de coluna com variações; o teste de ponta a ponta confere o Resumo contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: regenerar `exemplo\` com valores como `R$ 1.234,56` e `(500,00)`, datas `DD/MM/AAAA` e cabeçalhos `CHAVE`/`data`/`Valor `, rodar a CLI e conferir no `.xlsx` (lido com openpyxl, `PYTHONIOENCODING=utf-8`) que os totais do Resumo batem com a soma feita à mão.
 
 **Notas de entrega:**

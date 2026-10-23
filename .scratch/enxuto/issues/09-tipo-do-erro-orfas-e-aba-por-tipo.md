@@ -11,7 +11,7 @@
 - [x] O Tipo do Erro é texto com os tipos separados por `; ` na ordem da spec (Só em A; Só em B; Sinal invertido; Duplicado; Vírgula deslocada; Dígitos trocados; Sem padrão), pronto para receber vários.
 - [x] Aba `Por Tipo do Erro`: uma linha por Tipo presente, com Chaves e Diferença absoluta (reais), ordenada pela Diferença absoluta decrescente, com a nota de que uma Chave pode contar em mais de um Tipo.
 - [x] O gerador de exemplo planta Só em A, Só em B e Sem padrão no gabarito; o teste de ponta a ponta confere a coluna nas Operações e a aba contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre `exemplo\` e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que as Chaves plantadas como Só em A e Só em B aparecem com esse Tipo e que a aba Por Tipo do Erro soma as Chaves e a Diferença absoluta de cada Tipo, com a nota.
 
 **Notas de entrega:**

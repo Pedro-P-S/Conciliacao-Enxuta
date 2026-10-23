@@ -10,7 +10,7 @@
 - [x] No `.xlsx`, Valor numérico e Data como data do Excel são lidos certo; Chave numérica vira texto sem `.0` no fim.
 - [x] Um arquivo com extensão diferente dessas três dá uma mensagem em linguagem simples com o nome do arquivo, sem traceback.
 - [x] O teste de ponta a ponta roda o gerador de exemplo nos três formatos e confere contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: gravar em `exemplo\` a Base A em `.xlsx` e a Base B em `.parquet`, rodar a CLI e conferir no `.xlsx` de saída (openpyxl, `PYTHONIOENCODING=utf-8`) que o Resumo é igual ao da rodada com `.csv`.
 
 **Notas de entrega:**

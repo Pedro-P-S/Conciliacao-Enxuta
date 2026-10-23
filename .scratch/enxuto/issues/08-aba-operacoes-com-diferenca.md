@@ -10,7 +10,7 @@
 - [x] A aba `Operações com Diferença` tem as colunas Chave, Valor A, Valor B e Diferença, com Só em A/Só em B mostrando o lado ausente como 0.
 - [x] Cabeçalho congelado e com autofiltro cobrindo as colunas e linhas.
 - [x] O teste de ponta a ponta confere nomes e quantidade de abas, colunas, ordem das linhas e valores contra o gabarito.
-- [x] `C:\Users\josef\Projetos\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q` passa.
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
 - [x] Teste com olhos de usuário: rodar a CLI sobre `exemplo\` e conferir com openpyxl (`PYTHONIOENCODING=utf-8`) que a aba lista as Chaves com Diferença da Data-base mais recente, da maior para a menor, com cabeçalho congelado e filtro, e que a quantidade bate com Chaves com Diferença do Resumo.
 
 **Notas de entrega:**
