@@ -5,7 +5,7 @@ description: "Turn the current conversation into a spec and publish it to the pr
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-The issue tracker and triage labels are described in `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`.
+The issue tracker and triage labels are described in `CLAUDE.md` (seção Issue tracker).
 
 ## Process
 

@@ -10,7 +10,7 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
 
-The issue tracker is described in `docs/agents/issue-tracker.md`.
+The issue tracker is described in `CLAUDE.md` (seção Issue tracker).
 
 ## Process
 

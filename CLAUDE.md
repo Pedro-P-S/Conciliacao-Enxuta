@@ -43,16 +43,15 @@ Por enquanto usa o `.venv` do projeto grande; não instale nem atualize pacotes 
 
 O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`.
 
-## Agent skills
+## Issue tracker
 
-### Issue tracker
+Markdown local. A spec é uma só, `docs/spec.md`. Os tickets são um arquivo cada em `.scratch/enxuto/issues/NN-slug.md`, numerados a partir do último, com este layout:
 
-Markdown local: os tickets ficam em `.scratch/enxuto/issues/NN-slug.md` e a spec em `docs/spec.md`. Ver `docs/agents/issue-tracker.md`.
+- `# NN: <título>`
+- `**What to build:**` (um parágrafo, apontando a seção da spec)
+- `**Blocked by:**` (números dos tickets, ou `—`)
+- `**Status:**` um dos rótulos `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, ou `done` quando entregue
+- um checklist `- [ ]`; o último item é sempre o "Teste com olhos de usuário" em `exemplo\`
+- `**Notas de entrega:**` e `**Onde está agora (depois da entrega):**`, preenchidos na entrega
 
-### Triage labels
-
-Os cinco rótulos padrão, na linha `**Status:**` de cada ticket, mais `done` para o que foi entregue. Ver `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` e `GRILL.md` na raiz (e `docs/adr/` quando houver). Ver `docs/agents/domain.md`.
+Não há ADRs ainda: as decisões ficam no `GRILL.md` e nos blocos de decisões da spec.
