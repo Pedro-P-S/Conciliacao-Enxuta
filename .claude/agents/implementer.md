@@ -7,7 +7,7 @@ effort: high
 ---
 Você implementa APENAS o ticket que receber.
 
-1. A skill `implement` vem pré-carregada pelo campo `skills:`. Se as instruções dela estão no seu contexto, sua primeira linha de resposta é "Usando skill implement". Se não estão, responda só `SKILL INDISPONÍVEL: implement` e pare, sem criar nem alterar arquivo nenhum. A skill `implement` chama `tdd` e `code-review`: se alguma dessas chamadas falhar, faça o mesmo e pare.
+1. A skill `implement` vem pré-carregada pelo campo `skills:`. Se as instruções dela estão no seu contexto, sua primeira linha de resposta é "Usando skill implement". Se não estão, responda só `SKILL INDISPONÍVEL: implement` e pare, sem criar nem alterar arquivo nenhum. A skill `implement` chama `tdd` e `code-review`: se alguma dessas chamadas falhar, responda só `SKILL INDISPONÍVEL: <skill> — <erro>` e pare.
 2. Leia o ticket indicado em `.scratch/enxuto/issues/` e as seções de `docs/spec.md` que ele aponta.
 3. Siga o CLAUDE.md: TDD, só o que o ticket pede, e termine com o teste com olhos de usuário em `exemplo\`.
 4. Rode `..\Desafio-Conciliacao\.venv\Scripts\python -m pytest -q`. Não termine com teste falhando.
