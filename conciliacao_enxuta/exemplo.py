@@ -46,6 +46,9 @@ REJEITADAS_A = [
     (None, "30/09/2026", "abc", "Valor ilegível"),  # sem Chave: rejeitada, e não vira linha sem Chave
 ]
 REJEITADAS_B = [(" C00006 ", DATA_BASE, None, "Valor vazio")]  # a Data é data no `.xlsx` e no `.parquet`
+# Linha sem Chave na Base B só nesta Data-base antiga, com o valor da Diferença que esta Chave tinha nela: casa com
+# a Chave, cuja Diferença muda depois (é um caso de Diferença sorteada a cada dia).
+CASA_CHAVE, CASA_DATA = "C00041", date(2026, 5, 4)
 # Chaves de Diferença plantada que ficam sem ela de uma Data-base a outra, inclusive, com esta Diferença.
 # O Aberta desde delas é o dia útil seguinte; as outras têm Diferença desde a primeira Data-base ("ou antes"),
 # com outro valor a cada dia.
@@ -96,6 +99,7 @@ class Gabarito:
     por_atributo: tuple[tuple[str, str, int, float], ...]
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
     por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
+    linha_sem_chave: dict[str, str]  # o texto da coluna Linha sem Chave das Chaves que casam
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -310,6 +314,13 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         posicoes_a[data], posicoes_b[data], plantadas[data], tipos_plantados[data] = _posicao(sorteio, data)
     a, b, diferencas = posicoes_a[DATA_BASE], posicoes_b[DATA_BASE], plantadas[DATA_BASE]
     tipos = tipos_plantados[DATA_BASE]  # o Tipo do Erro só vale na Data-base mais recente
+    casa_valor = plantadas[CASA_DATA][CASA_CHAVE]  # na Base B, casa quando Diferença = Valor
+    tipos[CASA_CHAVE] = "Casa com linha sem Chave"
+    reais, centavos = divmod(abs(casa_valor), 100)
+    linha_sem_chave = {
+        CASA_CHAVE: f"{'−' if casa_valor < 0 else ''}{reais:,}".replace(",", ".")
+        + f",{centavos:02d} em {CASA_DATA:%d/%m/%Y} na Base B"
+    }
     _, posicoes_b[SO_NA_BASE_B], _, _ = _posicao(sorteio, SO_NA_BASE_B)
 
     aberta_desde = {chave: _aberta_desde(chave, plantadas) for chave in diferencas}
@@ -325,7 +336,9 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     linhas_b = [
         (f" {chave} ", data, valor, *map(_atributos_plantados(chave)[1].get, ATRIBUTOS_B))
         for data, valores in posicoes_b.items()
-        for chave, valor in _linhas_da_base(valores, REPETIDAS_B, SEM_CHAVE_B)
+        for chave, valor in _linhas_da_base(
+            valores, REPETIDAS_B, SEM_CHAVE_B + ([("", casa_valor)] if data == CASA_DATA else [])
+        )
     ]
     rejeitadas_a = [] if formato == "parquet" else REJEITADAS_A
     sem_atributos_a, sem_atributos_b = [None] * len(ATRIBUTOS_A), [None] * len(ATRIBUTOS_B)
@@ -368,7 +381,12 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         rejeitadas=tuple(rejeitadas),
         data_bases_so_em_b=(SO_NA_BASE_B,),
         historico=tuple(
-            (data, sum(abs(d) for d in [*ds.values(), *DIFERENCAS_SEM_CHAVE])) for data, ds in plantadas.items()
+            (
+                data,
+                sum(abs(d) for d in [*ds.values(), *DIFERENCAS_SEM_CHAVE])
+                + (abs(casa_valor) if data == CASA_DATA else 0),
+            )
+            for data, ds in plantadas.items()
         ),
         operacoes=tuple(
             sorted(
@@ -378,6 +396,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         ),
         por_tipo=_por_tipo(diferencas, tipos),
         por_idade=_por_idade(diferencas, aberta_desde),
+        linha_sem_chave=linha_sem_chave,
         aberta_desde=aberta_desde,
         atributos={chave: _atributos_da_chave(chave, chave in a, chave in b) for chave in diferencas},
         por_atributo=_por_atributo(a, b, diferencas),
