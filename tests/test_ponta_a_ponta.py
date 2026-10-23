@@ -854,3 +854,41 @@ def test_o_corte_da_aba_erros_conta_as_data_bases_ignoradas_junto_com_as_linhas_
         ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
         ("Base A", 4, "2", None, "1", "Data vazia"),
     ]
+
+
+def test_caractere_de_controle_no_valor_na_chave_ou_no_atributo_sai_no_excel_sem_ele_e_a_conciliacao_segue(
+    tmp_path, capsys
+):
+    base_a, base_b = tmp_path / "base_a.csv", tmp_path / "base_b.csv"
+    base_a.write_text(
+        "Chave;Data;Valor;Filial\n1;30/09/2026;10,00;S\x02P\nK\x01;30/09/2026;5,00;RJ\n3;30/09/2026;1\x0200;SP\n",
+        encoding="utf-8",
+    )
+    base_b.write_text("Chave;Data;Valor;Filial\n1;30/09/2026;20,00;SP\n", encoding="utf-8")
+
+    assert main(["conciliar", str(base_a), str(base_b)]) == 0
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
+    assert list(wb["Erros"].iter_rows(min_row=2, values_only=True)) == [
+        ("Base A", 4, "3", "30/09/2026", "100", "Valor ilegível")
+    ]
+    operacoes = {linha[0]: linha[7] for linha in wb["Operações com Diferença"].iter_rows(min_row=2, values_only=True)}
+    assert operacoes == {"1": "SP", "K": "RJ"}
+
+
+def test_texto_que_comeca_com_igual_sai_no_excel_como_texto_e_nao_como_formula(tmp_path, capsys):
+    base_a, base_b = tmp_path / "base_a.csv", tmp_path / "base_b.csv"
+    base_a.write_text(
+        "Chave;Data;Valor;Filial\n=K;30/09/2026;5,00;=A1+1\n3;30/09/2026;=SOMA(A1:A2);SP\n", encoding="utf-8"
+    )
+    base_b.write_text("Chave;Data;Valor;Filial\n1;30/09/2026;20,00;SP\n", encoding="utf-8")
+
+    assert main(["conciliar", str(base_a), str(base_b)]) == 0
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
+    valor_rejeitado = wb["Erros"]["E2"]
+    assert (valor_rejeitado.value, valor_rejeitado.data_type) == ("=SOMA(A1:A2)", "s")
+    chave, filial = next(
+        (linha[0], linha[7]) for linha in wb["Operações com Diferença"].iter_rows(min_row=2) if linha[0].value == "=K"
+    )
+    assert (chave.data_type, filial.value, filial.data_type) == ("s", "=A1+1", "s")

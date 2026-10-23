@@ -6,6 +6,7 @@ from pathlib import Path
 
 import openpyxl
 import polars as pl
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
@@ -35,6 +36,18 @@ def _aviso_de_corte(limite: int, total: int) -> str:
 def _milhar(numero: int) -> str:
     """700000 → '700.000'."""
     return f"{numero:,}".replace(",", ".")
+
+
+def _do_arquivo(ws, linha: int, coluna: int, valor):
+    """Grava na célula um valor que veio do arquivo (Chave, Atributo, conteúdo de Linha rejeitada).
+
+    O texto perde os caracteres de controle, que o Excel não aceita, e fica texto mesmo começando com `=`.
+    """
+    if not isinstance(valor, str):
+        return ws.cell(linha, coluna, valor)
+    celula = ws.cell(linha, coluna, ILLEGAL_CHARACTERS_RE.sub("", valor))
+    celula.data_type = "s"  # sem isto o openpyxl grava como fórmula
+    return celula
 
 
 def _linha_sem_chave(casa: list[dict] | None) -> str | None:
@@ -202,8 +215,8 @@ def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela) -> None:
     for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"], start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
-        ws.cell(linha, 1, atributo)
-        ws.cell(linha, 2, valor)
+        _do_arquivo(ws, linha, 1, atributo)
+        _do_arquivo(ws, linha, 2, valor)
         ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
 
@@ -227,9 +240,9 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
     primeiro_atributo = len(titulos) + 1
     titulos += atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
-        ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
+        _do_arquivo(ws, linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, (chave, a, b, diferenca, tipo, desde, ou_antes, casa) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
-        ws.cell(linha, 1, chave)
+        _do_arquivo(ws, linha, 1, chave)
         # Valor A e Valor B com o sinal; a Diferença sem
         for coluna, centavos in enumerate((a, b, abs(diferenca)), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
@@ -238,7 +251,7 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
         ws.cell(linha, 7, _linha_sem_chave(casa))
     for coluna, atributo in enumerate(atributos.iter_columns(), start=primeiro_atributo):
         for linha, valor in enumerate(atributo, start=linha_do_cabecalho + 1):
-            ws.cell(linha, coluna, valor)
+            _do_arquivo(ws, linha, coluna, valor)
         ws.column_dimensions[get_column_letter(coluna)].width = 18
     ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
     ws.auto_filter.ref = f"A{linha_do_cabecalho}:{get_column_letter(len(titulos))}{linha_do_cabecalho + operacoes.height}"
@@ -281,7 +294,7 @@ def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, valores in enumerate(erros.iter_rows(), start=linha_do_cabecalho + 1):
         for coluna, valor in enumerate(valores, start=1):
-            ws.cell(linha, coluna, valor)
+            _do_arquivo(ws, linha, coluna, valor)
     ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
     ws.auto_filter.ref = f"A{linha_do_cabecalho}:F{linha_do_cabecalho + erros.height}"
     for letra, largura in zip("ABCDEF", (10, 10, 24, 14, 18, 18)):

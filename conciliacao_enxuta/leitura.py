@@ -10,6 +10,7 @@ from __future__ import annotations
 import unicodedata
 from pathlib import Path
 
+import fastexcel
 import polars as pl
 
 COLUNAS = ("Chave", "Data", "Valor")
@@ -95,7 +96,14 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
         # O tipo sai de todas as linhas, não de uma amostra: senão um texto depois da amostra numérica
         # vira vazio, e a linha some. Uma coluna com tipos misturados vem como texto.
         # A linha vazia fica, para a numeração das Linhas rejeitadas ser a que o usuário vê.
-        return pl.read_excel(caminho, infer_schema_length=None, drop_empty_rows=False)
+        try:
+            return pl.read_excel(caminho, infer_schema_length=None, drop_empty_rows=False)
+        except pl.exceptions.InvalidOperationError:
+            # O polars passa a inteiro a coluna decimal de números redondos, e quebra num grande demais (1e30).
+            # Então as colunas decimais ficam decimais, e o número ruim vira Linha rejeitada adiante.
+            colunas = fastexcel.read_excel(caminho).load_sheet(0, schema_sample_rows=None).available_columns()
+            decimais = {c.name: pl.Float64 for c in colunas if c.dtype == "float"}
+            return pl.read_excel(caminho, infer_schema_length=None, drop_empty_rows=False, schema_overrides=decimais)
     if extensao == ".parquet":
         return pl.read_parquet(caminho)
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
@@ -128,7 +136,8 @@ def _data_de(tipo: pl.DataType) -> pl.Expr:
     if tipo in (pl.Date, pl.Datetime):
         return pl.col("Data").cast(pl.Date)
     if tipo.is_numeric():
-        return _data(pl.col("Data").cast(pl.Int64).cast(pl.String))
+        # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Data ilegível`
+        return _data(pl.col("Data").cast(pl.Int64, strict=False).cast(pl.String))
     return _data(pl.col("Data"))
 
 
