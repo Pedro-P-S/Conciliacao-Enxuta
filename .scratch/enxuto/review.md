@@ -1,20 +1,15 @@
-# Code review: `c49ac48...HEAD` (tickets 01 a 17)
+# Code review: `c49ac48...HEAD` (tickets 01 a 17), 2ª rodada
 
-Revisado contra `docs/spec.md` e `.scratch/enxuto/issues/01` a `17`, nos dois eixos da skill `code-review`: **Standards** e **Spec**. Os testes passam (129). O código não foi alterado.
+Revisado contra `docs/spec.md` e `.scratch/enxuto/issues/01` a `17`, nos eixos **Standards** e **Spec** da skill `code-review`. Esta rodada confere o commit 99dda07, que corrigiu os 2 críticos da 1ª. Os testes passam (131). O código não foi alterado.
 
 ## Problemas críticos
 
-1. **`.csv` em cp1252/latin-1 quebra a leitura** (eixo Spec). Quando o Excel em português salva um `.csv`, o arquivo sai em cp1252. A Base com acento no cabeçalho ou nos dados dá `UnicodeDecodeError`. Na CLI isso vira traceback, e na janela vira "Algo deu errado…".
-   - Onde: `leitura.py:73` (`_separador` abre com `utf-8-sig`) e `leitura.py:81` (`pl.read_csv` espera utf-8).
-   - Contraria a spec, histórias 4 ("usar `.csv` … para trabalhar com o que o sistema exporta") e 35 ("mensagens de erro em linguagem simples, sem traceback").
-   - Correção sugerida: tentar utf-8 e, se falhar, ler em cp1252, nos dois pontos.
+Nenhum. Os 2 críticos da 1ª rodada foram resolvidos:
 
-2. **A soma das linhas sem Chave conta a mesma posição várias vezes** (eixo Spec). Desde o merge 05/06, `_sem_chave` (`cruzamento.py:88-91`) conta e soma as linhas sem Chave de todas as Data-bases comuns.
-   - Exemplo: com posições diárias (história 9), uma linha de R$ 5,00 repetida em 3 Data-bases sai como `SemChave(linhas=3, soma=1500)`.
-   - O Resumo mostra essa "Soma" (`excel.py:81-89`) sem dizer o período, logo abaixo dos totais de uma única Data-base. Com seis meses de posições diárias, o número fica ~120 vezes maior e engana quem lê.
-   - Contraria a spec, história 12 ("o Resumo me diga quantas são e quanto somam"), lida junto com o quadro da Data-base mais recente.
-   - Nenhum teste pega o problema, porque o gerador só planta essas linhas na `DATA_BASE` (`exemplo.py:304`).
-   - Correção sugerida: contar só a Data-base mais recente, ou dizer explicitamente no aviso o período somado.
+1. *(resolvido)* **`.csv` em cp1252.** `_texto_do_csv` tenta `utf-8-sig` e depois `cp1252`; o separador sai do texto decodificado. Testado com acento no cabeçalho e nos dados, e o gerador agora grava a Base B em cp1252, o que exercita o caminho nos testes de ponta a ponta. Arquivo ilegível vira `ErroDeLeitura`, sem traceback.
+2. *(resolvido)* **Linhas sem Chave contadas várias vezes.** `_sem_chave` filtra só a Data-base mais recente, a mesma dos totais; a spec (Preparação) foi atualizada; o teste repete a linha em 3 Data-bases e o gerador a repete em todas.
+
+A correção não criou problema novo crítico. Detalhes menores nas Sugestões 14 e 15.
 
 ## Sugestões
 
@@ -46,6 +41,11 @@ Revisado contra `docs/spec.md` e `.scratch/enxuto/issues/01` a `17`, nos dois ei
     - `pl.col("A").fill_null(0), pl.col("B").fill_null(0)` se repete em `cruzamento.py:100, 191, 259 e 271`.
     - Os totais em `cruzamento.py:280-281` filtram a Data-base de novo, embora `a_na_mais_recente` e `b_na_mais_recente` já existam.
 
+### Novas, da 2ª rodada (commit 99dda07)
+
+14. **O fallback para cp1252 aceita quase tudo em silêncio** (Spec). cp1252 decodifica quase qualquer byte, então um `.csv` em outra codificação (ou misto UTF-8 com cp1252) passa com acentos trocados e sem aviso (`leitura.py`, `_texto_do_csv`). A mensagem "Salve o .csv como UTF-8" quase nunca aparece. Aceitável pela simplicidade; um teste de arquivo misto documentaria o comportamento.
+15. **O aviso de linhas sem Chave não diz a Data-base** (Spec, história 12). O cabeçalho "Linhas sem Chave, fora do cruzamento" (`excel.py:83`) fica abaixo do quadro da Data-base mais recente, mas não a cita. Acrescentar "na Data-base mais recente" ao título elimina a ambiguidade que motivou o Crítico 2. Linhas sem Chave que existem só em Data-bases antigas agora somem do Resumo sem aviso, o que é coerente com a spec atualizada.
+
 ## Pontos em aberto deixados pelos implementers
 
 | # | Ponto | Classificação |
@@ -62,7 +62,7 @@ Revisado contra `docs/spec.md` e `.scratch/enxuto/issues/01` a `17`, nos dois ei
 **Resumo por eixo:**
 
 - **Standards:** 6 sugestões e nenhuma violação dura. A pior é a dependência da janela em `cli` e `argparse` para a Tolerância, junto com a duplicação do pipeline.
-- **Spec:** 2 críticos e 7 sugestões. O pior é o `.csv` em cp1252, que não é lido.
+- **Spec:** nenhum crítico e 9 sugestões. A pior é o fallback silencioso para cp1252.
 
 ## Correções
 
