@@ -24,7 +24,10 @@ class SemChave:
 
 @dataclass(frozen=True)
 class Resultado:
-    """Os totais da Data-base mais recente e o Histórico da Diferença. Dinheiro em centavos."""
+    """Os totais e as Operações com Diferença da Data-base mais recente e o Histórico da Diferença.
+
+    Dinheiro em centavos.
+    """
 
     data_base: date
     tolerancia: int
@@ -38,6 +41,9 @@ class Resultado:
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
+    # As Chaves com Diferença da Data-base mais recente: Chave, A, B e Diferenca, por |Diferença| decrescente.
+    # O lado ausente vale 0. É DataFrame porque a lista pode ter centenas de milhares de linhas.
+    operacoes: pl.DataFrame
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -80,6 +86,10 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         com_diferenca.group_by("Data").agg(pl.col("Diferenca").abs().sum()).iter_rows()
     )
     na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
+    operacoes = (
+        na_mais_recente.select("Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca")
+        .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
+    )
 
     return Resultado(
         data_base=data_base,
@@ -94,4 +104,5 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         historico=tuple((data, int(absoluta_por_data.get(data, 0))) for data in comuns),
         sem_chave_a=_sem_chave(sem_chave_a, comuns),
         sem_chave_b=_sem_chave(sem_chave_b, comuns),
+        operacoes=operacoes,
     )

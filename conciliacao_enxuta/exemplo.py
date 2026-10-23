@@ -49,6 +49,7 @@ class Gabarito:
     sem_chave_b: SemChave
     data_bases_so_em_b: tuple[date, ...]
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
+    operacoes: tuple[tuple[str, int, int, int], ...]  # (Chave, A, B, Diferença), por |Diferença| decrescente
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -117,11 +118,11 @@ def _data_do_excel(data: date) -> str:
     return str((data - date(1899, 12, 30)).days)
 
 
-def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], list[int]]:
-    """Uma Data-base: os valores de A e de B e as Diferenças plantadas acima da Tolerância."""
+def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Uma Data-base: os valores de A e de B e as Diferenças plantadas acima da Tolerância, por Chave."""
     a: dict[str, int] = {}
     b: dict[str, int] = {}
-    diferencas: list[int] = []
+    diferencas: dict[str, int] = {}
 
     for i in range(1, N_CHAVES + 1):
         chave = f"C{i:05d}"
@@ -130,15 +131,15 @@ def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], li
         if caso == 1:  # Diferença acima da Tolerância, positiva ou negativa
             delta = sorteio.choice([-1, 1]) * sorteio.randint(TOLERANCIA + 1, 500_000)
             a[chave], b[chave] = valor, valor - delta
-            diferencas.append(delta)
+            diferencas[chave] = delta
         elif caso == 2:  # Diferença dentro da Tolerância
             a[chave], b[chave] = valor, valor - sorteio.randint(-TOLERANCIA, TOLERANCIA)
         elif caso == 3:  # Só em A
             a[chave] = valor
-            diferencas.append(valor)
+            diferencas[chave] = valor
         elif caso == 4:  # Só em B
             b[chave] = valor
-            diferencas.append(-valor)
+            diferencas[chave] = -valor
         else:
             a[chave] = b[chave] = valor
 
@@ -159,7 +160,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
 
     posicoes_a: dict[date, dict[str, int]] = {}
     posicoes_b: dict[date, dict[str, int]] = {}
-    plantadas: dict[date, list[int]] = {}
+    plantadas: dict[date, dict[str, int]] = {}
     for data in _dias_uteis(PRIMEIRA_DATA_BASE, DATA_BASE):
         posicoes_a[data], posicoes_b[data], plantadas[data] = _posicao(sorteio)
     a, b, diferencas = posicoes_a[DATA_BASE], posicoes_b[DATA_BASE], plantadas[DATA_BASE]
@@ -193,13 +194,19 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         data_base=DATA_BASE,
         total_a=sum(a.values()),
         total_b=sum(b.values()),
-        diferenca_total=sum(diferencas),
-        diferenca_absoluta=sum(abs(d) for d in diferencas),
+        diferenca_total=sum(diferencas.values()),
+        diferenca_absoluta=sum(abs(d) for d in diferencas.values()),
         chaves_com_diferenca=len(diferencas),
         sem_chave_a=_sem_chave(SEM_CHAVE_A),
         sem_chave_b=_sem_chave(SEM_CHAVE_B),
         data_bases_so_em_b=(SO_NA_BASE_B,),
-        historico=tuple((data, sum(abs(d) for d in ds)) for data, ds in plantadas.items()),
+        historico=tuple((data, sum(abs(d) for d in ds.values())) for data, ds in plantadas.items()),
+        operacoes=tuple(
+            sorted(
+                ((chave, a.get(chave, 0), b.get(chave, 0), d) for chave, d in diferencas.items()),
+                key=lambda op: (-abs(op[3]), op[0]),
+            )
+        ),
     )
 
 
