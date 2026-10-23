@@ -68,7 +68,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - `cli`, `gui` e `gui_estado`. A GUI é casca: as regras ficam em `gui_estado`, que não importa Tkinter.
 
 **Regras:**
-- **Preparação:** linhas sem Chave saem do cruzamento e são contadas e somadas por base. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
+- **Preparação:** linhas sem Chave saem do cruzamento e são contadas e somadas por base, só na Data-base mais recente, como os totais. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
 - **Data-bases:** entram só as comuns às duas bases. A Data-base mais recente é a maior comum.
 - **Cruzamento por Data-base:** junção completa pela Chave. Diferença = A − B, e o lado que falta conta como 0. Uma Chave tem Diferença quando |Diferença| > Tolerância. O Atributo vem de A e, se vazio ou ausente, de B.
 - **Tipo do Erro**, só na Data-base mais recente, com todos os que se aplicam separados por `; ` nesta ordem:

@@ -157,14 +157,20 @@ def test_cruza_por_chave_dentro_de_cada_data_base_e_guarda_a_diferenca_absoluta_
     assert r.chaves_com_diferenca == 2
 
 
-def test_linhas_sem_chave_contam_so_nas_data_bases_que_entram_no_cruzamento():
-    a = base_com_data_bases({1: [("x", 100), ("", 500)], 2: [("x", 100), ("", 30)], 3: [("x", 100), ("", 7)]})
-    b = base_com_data_bases({2: [("x", 100), ("", 2_000)], 3: [("x", 100)], 4: [("x", 100), ("", 9_000)]})
+def test_linhas_sem_chave_contam_so_na_data_base_mais_recente_como_os_totais():
+    # Em posições diárias, a mesma linha sem Chave se repete a cada Data-base: somar todas a contaria várias vezes.
+    a = base_com_data_bases(
+        {1: [("x", 100), ("", 500)], 2: [("x", 100), ("", 500)], 3: [("x", 100), ("", 500), ("", 7)]}
+    )
+    b = base_com_data_bases(
+        {2: [("x", 100), ("", 2_000)], 3: [("x", 100), ("", 300)], 4: [("x", 100), ("", 9_000)]}
+    )
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.sem_chave_a == SemChave(linhas=2, soma=37)  # sem a Data-base 1, só em A
-    assert r.sem_chave_b == SemChave(linhas=1, soma=2_000)  # sem a Data-base 4, só em B
+    assert r.data_base == dia(3)
+    assert r.sem_chave_a == SemChave(linhas=2, soma=507)
+    assert r.sem_chave_b == SemChave(linhas=1, soma=300)  # nem a Data-base 2, nem a 4, só em B
 
 
 def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_tolerancia_da_maior_para_a_menor():

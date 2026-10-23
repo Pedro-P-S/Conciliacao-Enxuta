@@ -4,6 +4,7 @@ As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
 A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial. As duas trazem a
 Carteira, em que Legado concentra a Diferença, e a Moeda, BRL em todas as Chaves.
+No `.csv`, a Base A sai em UTF-8 com BOM e a Base B em cp1252, as duas formas do Excel em português.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
 
@@ -31,7 +32,7 @@ N_CHAVES = 200
 # Chaves gravadas em duas linhas, que o cruzamento tem de somar: uma sem Diferença e uma com
 REPETIDAS_A = ["C00005", "C00011"]
 REPETIDAS_B = ["C00006", "C00021"]
-# Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento
+# Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento; repetidas em toda Data-base
 SEM_CHAVE_A = [("", 12_345), ("   ", -2_000)]
 SEM_CHAVE_B = [("", 77_700)]
 # Chaves de Diferença plantada que ficam sem ela de uma Data-base a outra, inclusive, com esta Diferença.
@@ -134,9 +135,14 @@ def _atributos_plantados(chave: str) -> tuple[dict[str, str | None], dict[str, s
     )
 
 
-def _escrever_csv(caminho: Path, cabecalho: list[str], linhas: list[list[str | None]]) -> None:
-    """`.csv` separado por `;` e com BOM, como o Excel salva no Brasil; vazio é campo vazio."""
-    with caminho.open("w", newline="", encoding="utf-8-sig") as f:
+def _escrever_csv(
+    caminho: Path, cabecalho: list[str], linhas: list[list[str | None]], codificacao: str = "utf-8-sig"
+) -> None:
+    """`.csv` separado por `;`, como o Excel salva no Brasil; vazio é campo vazio.
+
+    `utf-8-sig` (com BOM) é o "CSV UTF-8" do Excel; `cp1252` é o "CSV (separado por vírgulas)".
+    """
+    with caminho.open("w", newline="", encoding=codificacao) as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(cabecalho)
         w.writerows([["" if campo is None else campo for campo in linha] for linha in linhas])
@@ -297,25 +303,26 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     aberta_desde = {chave: _aberta_desde(chave, plantadas) for chave in diferencas}
 
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
-    # As linhas sem Chave vão na Data-base mais recente; a Base B as repete na Data-base ignorada, onde não contam.
+    # As linhas sem Chave se repetem em toda Data-base, como numa posição diária; só contam as da mais recente.
     linhas_a = [
         (chave, data, valor, *map(_atributos_plantados(chave)[0].get, ATRIBUTOS_A))
         for data, valores in posicoes_a.items()
-        for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A if data == DATA_BASE else [])
+        for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A)
     ]
     linhas_b = [
         (f" {chave} ", data, valor, *map(_atributos_plantados(chave)[1].get, ATRIBUTOS_B))
         for data, valores in posicoes_b.items()
-        for chave, valor in _linhas_da_base(
-            valores, REPETIDAS_B, SEM_CHAVE_B if data in (DATA_BASE, SO_NA_BASE_B) else []
-        )
+        for chave, valor in _linhas_da_base(valores, REPETIDAS_B, SEM_CHAVE_B)
     ]
     if formato == "csv":
         _escrever_csv(
             base_a, CABECALHO_A, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
         )
         _escrever_csv(
-            base_b, CABECALHO_B, [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
+            base_b,
+            CABECALHO_B,
+            [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b],
+            codificacao="cp1252",  # com os acentos do Produto (Crédito, Débito, Câmbio)
         )
     else:
         _escrever_nativo(base_a, CABECALHO_A, linhas_a)

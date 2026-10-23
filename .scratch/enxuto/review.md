@@ -63,3 +63,40 @@ Revisado contra `docs/spec.md` e `.scratch/enxuto/issues/01` a `17`, nos dois ei
 
 - **Standards:** 6 sugestões e nenhuma violação dura. A pior é a dependência da janela em `cli` e `argparse` para a Tolerância, junto com a duplicação do pipeline.
 - **Spec:** 2 críticos e 7 sugestões. O pior é o `.csv` em cp1252, que não é lido.
+
+## Correções
+
+Só os 2 problemas críticos. As sugestões ficaram como estavam. Antes da correção, cada teste novo falhava pelo motivo certo. Resultado: `pytest -q` dá 131 passed.
+
+1. **`.csv` em cp1252.**
+   - `leitura.py`: o `.csv` agora é lido primeiro em UTF-8 (com ou sem BOM) e, se falhar, em cp1252 (`_texto_do_csv`). O texto já decodificado vai para o `pl.read_csv`, e o separador sai da primeira linha desse texto. A função `_separador` deixou de existir.
+   - Se o arquivo não for nem UTF-8 nem cp1252, `ler_base` lança um `ErroDeLeitura` com a mensagem "não foi possível ler o texto do arquivo. Salve o .csv como UTF-8." A CLI e a janela já tratavam esse erro, então não aparece traceback.
+   - Testes:
+     - `test_csv_em_cp1252_com_acento_e_lido`: acento no cabeçalho e nos dados.
+     - `test_csv_que_nao_e_utf8_nem_cp1252_da_mensagem_simples`.
+   - Gerador: no `.csv`, a Base B passou a sair em cp1252 sem BOM, como o "CSV (separado por vírgulas)" do Excel, com os acentos do Produto. A Base A continua em UTF-8 com BOM. Com o código antigo, 19 testes de ponta a ponta falhavam.
+   - Olhos de usuário em `exemplo\`:
+     - As bases geradas viraram `.xlsx` pela CLI, com "Crédito", "Câmbio" e "Débito" certos nas abas.
+     - Um `.csv` em cp1252 feito à mão, com `Dáta` e `Descrição` no cabeçalho e "Crédito à vista" nos dados, foi conciliado pela CLI e por `conciliar_pela_janela` (sem abrir a GUI).
+     - Um arquivo ilegível deu só a mensagem simples, com código 1 na CLI.
+
+2. **Linhas sem Chave contadas várias vezes.**
+   - Agora `_sem_chave` conta e soma só a Data-base mais recente, a mesma dos totais do quadro do Resumo.
+   - Teste: o antigo `test_linhas_sem_chave_contam_so_nas_data_bases_que_entram_no_cruzamento` virou `test_linhas_sem_chave_contam_so_na_data_base_mais_recente_como_os_totais`, com a mesma linha repetida em 3 Data-bases.
+   - Gerador: as linhas sem Chave agora se repetem em toda Data-base, como numa posição diária. O gabarito continua com uma cópia só. Com o código antigo, o aviso do Resumo dava 262 linhas e R$ 13.551,95 na Base A, em vez de 2 linhas e R$ 103,45.
+   - Olhos de usuário em `exemplo\`: o Resumo mostra Base A com 2 linhas e 103,45, e Base B com 1 linha e 777,00.
+   - Spec: a linha da Preparação diz agora "só na Data-base mais recente, como os totais".
+
+Arquivos alterados:
+- `conciliacao_enxuta/leitura.py`
+- `conciliacao_enxuta/cruzamento.py`
+- `conciliacao_enxuta/exemplo.py`
+- `tests/test_leitura.py`
+- `tests/test_cruzamento.py`
+- `docs/spec.md`
+- `.scratch/enxuto/review.md`
+
+Pontos em aberto, do code review das correções:
+- Como o cp1252 decodifica quase qualquer byte, um arquivo em outra codificação, ou misto, pode passar com acentos trocados e sem aviso.
+- O texto do `.csv` é codificado de novo em UTF-8 para o polars. Isso dobra a memória na leitura, mas é a solução mais simples.
+- O título do aviso no Resumo não cita a Data-base. Ele fica logo abaixo do quadro da Data-base mais recente.

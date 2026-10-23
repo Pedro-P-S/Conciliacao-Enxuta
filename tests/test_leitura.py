@@ -33,6 +33,26 @@ def test_nomes_de_coluna_sem_diferenciar_maiuscula_acento_e_espaco_nas_pontas(tm
     assert base["Valor"].to_list() == [1000]
 
 
+def test_csv_em_cp1252_com_acento_e_lido(tmp_path):
+    # Como o Excel em português salva o "CSV (separado por vírgulas)": cp1252, sem BOM
+    caminho = tmp_path / "base.csv"
+    caminho.write_text("Chave;Dáta;Valor;Descrição\n1;30/09/2026;10,00;Crédito à vista\n", encoding="cp1252")
+
+    base = ler_base(caminho)
+
+    assert base.columns == ["Chave", "Data", "Valor", "Descrição"]
+    assert base["Descrição"].to_list() == ["Crédito à vista"]
+    assert base["Valor"].to_list() == [1000]
+
+
+def test_csv_que_nao_e_utf8_nem_cp1252_da_mensagem_simples(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_bytes(b"Chave;Data;Valor\n\x81;30/09/2026;10,00\n")  # 0x81 nem existe em cp1252
+
+    with pytest.raises(ErroDeLeitura, match=r"^base\.csv: não foi possível ler o texto do arquivo"):
+        ler_base(caminho)
+
+
 @pytest.mark.parametrize(
     ("texto", "centavos"),
     [

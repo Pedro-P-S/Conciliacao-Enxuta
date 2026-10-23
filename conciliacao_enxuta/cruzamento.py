@@ -46,7 +46,7 @@ class Resultado:
     diferenca_total: int
     diferenca_absoluta: int
     chaves_com_diferenca: int
-    sem_chave_a: SemChave  # só nas Data-bases comuns
+    sem_chave_a: SemChave  # só na Data-base mais recente
     sem_chave_b: SemChave
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
@@ -85,9 +85,12 @@ def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     return somadas, fora
 
 
-def _sem_chave(fora: pl.DataFrame, comuns: list[date]) -> SemChave:
-    """Conta e soma as linhas sem Chave das Data-bases que entram no cruzamento."""
-    fora = fora.filter(pl.col("Data").is_in(comuns))
+def _sem_chave(fora: pl.DataFrame, data_base: date) -> SemChave:
+    """Conta e soma as linhas sem Chave da Data-base mais recente, a mesma dos totais do Resumo.
+
+    Somar todas as Data-bases contaria várias vezes a mesma linha das posições diárias.
+    """
+    fora = fora.filter(pl.col("Data") == data_base)
     return SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
 
 
@@ -285,8 +288,8 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         data_bases_so_em_a=tuple(sorted(datas_a - datas_b)),
         data_bases_so_em_b=tuple(sorted(datas_b - datas_a)),
         historico=tuple((data, int(absoluta_por_data.get(data, 0))) for data in comuns),
-        sem_chave_a=_sem_chave(sem_chave_a, comuns),
-        sem_chave_b=_sem_chave(sem_chave_b, comuns),
+        sem_chave_a=_sem_chave(sem_chave_a, data_base),
+        sem_chave_b=_sem_chave(sem_chave_b, data_base),
         operacoes=operacoes,
         atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),
         abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),

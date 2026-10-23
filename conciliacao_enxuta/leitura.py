@@ -68,17 +68,24 @@ def _data(texto: pl.Expr) -> pl.Expr:
     )
 
 
-def _separador(caminho: str | Path) -> str:
-    """`;` se o cabeçalho tiver `;` (o comum no Brasil); senão `,`."""
-    with open(caminho, encoding="utf-8-sig") as f:
-        return ";" if ";" in f.readline() else ","
+def _texto_do_csv(caminho: Path) -> str:
+    """O `.csv` em UTF-8 (com ou sem BOM) ou, se não for, em cp1252, como o Excel em português salva."""
+    dados = caminho.read_bytes()
+    for codificacao in ("utf-8-sig", "cp1252"):
+        try:
+            return dados.decode(codificacao)
+        except UnicodeDecodeError:
+            pass
+    raise ErroDeLeitura(f"{caminho.name}: não foi possível ler o texto do arquivo. Salve o .csv como UTF-8.")
 
 
 def _ler_tabela(caminho: Path) -> pl.DataFrame:
     """O arquivo como veio: `.csv` todo texto; `.xlsx` (primeira aba) e `.parquet` com os tipos nativos."""
     extensao = caminho.suffix.lower()
     if extensao == ".csv":
-        return pl.read_csv(caminho, separator=_separador(caminho), infer_schema=False)
+        texto = _texto_do_csv(caminho)
+        separador = ";" if ";" in texto.partition("\n")[0] else ","  # `;` no cabeçalho é o comum no Brasil
+        return pl.read_csv(texto.encode("utf-8"), separator=separador, infer_schema=False)
     if extensao == ".xlsx":
         # O tipo sai de todas as linhas, não de uma amostra: senão um texto depois da amostra numérica
         # vira vazio, e a linha some. Uma coluna com tipos misturados vem como texto.
