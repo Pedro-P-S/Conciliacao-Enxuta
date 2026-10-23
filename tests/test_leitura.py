@@ -1,6 +1,6 @@
 """Leitura de `.csv`, `.xlsx` e `.parquet`: nomes de coluna flexíveis, Valor e Data no formato brasileiro ou nativos."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import openpyxl
 import polars as pl
@@ -281,3 +281,96 @@ def test_a_linha_rejeitada_e_a_que_o_usuario_ve_no_xlsx_e_no_parquet(tmp_path):
     ).write_parquet(parquet)
     _, rejeitadas = ler_base(parquet)
     assert rejeitadas_em_tuplas(rejeitadas) == [(2, "2", "2026-09-30", None, "Valor vazio")]
+
+
+@pytest.mark.parametrize(
+    ("texto", "centavos"),
+    [
+        ("1.234,567", 123_457),
+        ("1234.565", 123_457),
+        ("-0,005", -1),
+        ("0,004", 0),
+        ("(1,2345)", -123),
+    ],
+)
+def test_valor_em_texto_com_mais_de_2_casas_e_arredondado_com_o_meio_para_longe_do_zero(tmp_path, texto, centavos):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;2026-09-30;{texto}\n", encoding="utf-8")
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Valor"].to_list() == [centavos]
+    assert rejeitadas.height == 0
+
+
+def test_valor_numerico_com_mais_de_2_casas_no_xlsx_e_no_parquet_e_arredondado(tmp_path):
+    valores = [1234.567, 1234.565, -0.005]
+    xlsx = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor"])
+    for i, valor in enumerate(valores):
+        wb.active.append([i, date(2026, 9, 30), valor])
+    wb.save(xlsx)
+    parquet = tmp_path / "base.parquet"
+    pl.DataFrame({"Chave": ["0", "1", "2"], "Data": [date(2026, 9, 30)] * 3, "Valor": valores}).write_parquet(parquet)
+
+    for caminho in (xlsx, parquet):
+        base, rejeitadas = ler_base(caminho)
+        assert base["Valor"].to_list() == [123_457, 123_457, -1]
+        assert rejeitadas.height == 0
+
+
+@pytest.mark.parametrize("texto", ["abc", "#", "12a", "1,5#", "R$ 10,00 x", "--5", "(5", "5)", "-(5)", "1.2.3,45,6"])
+def test_valor_com_caractere_estranho_vira_linha_rejeitada(tmp_path, texto):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n", encoding="utf-8")
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base.height == 0
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", "30/09/2026", texto, "Valor ilegível")]
+
+
+def test_atributo_com_numero_letra_simbolo_ou_vazio_vira_texto_ou_nulo_nos_tres_formatos(tmp_path):
+    conteudos = [101, "Sul", "#@!%&*", None]
+    esperado = ["101", "Sul", "#@!%&*", None]
+    csv = tmp_path / "base.csv"
+    csv.write_text(
+        "Chave;Data;Valor;Extra\n" + "".join(f"{i};30/09/2026;10,00;{c if c is not None else ''}\n" for i, c in enumerate(conteudos)),
+        encoding="utf-8",
+    )
+    xlsx = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor", "Extra"])
+    for i, c in enumerate(conteudos):
+        wb.active.append([i, date(2026, 9, 30), 10, c])
+    wb.save(xlsx)
+    parquet = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"Chave": ["0", "1", "2", "3"], "Data": [date(2026, 9, 30)] * 4, "Valor": [10.0] * 4,
+         "Extra": esperado, "Numero": [1, 2, None, 4], "Sim": [True, False, None, True]}
+    ).write_parquet(parquet)
+
+    for caminho in (csv, xlsx, parquet):
+        base, rejeitadas = ler_base(caminho)
+        assert base["Extra"].to_list() == esperado
+        assert rejeitadas.height == 0
+    base, _ = ler_base(parquet)
+    assert base["Numero"].to_list() == ["1", "2", None, "4"]
+    assert base["Sim"].to_list() == ["true", "false", None, "true"]
+
+
+def test_atributo_de_tipo_incomum_no_parquet_vira_texto_e_nao_para_a_leitura(tmp_path):
+    caminho = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"Chave": ["1", "2"], "Data": [date(2026, 9, 30)] * 2, "Valor": [1.0, 2.0],
+         "Lista": [[1, 2], None], "Prazo": [timedelta(days=3), None]}
+    ).write_parquet(caminho)
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base.schema["Lista"] == base.schema["Prazo"] == pl.String
+    assert base["Lista"].to_list() == ["[1, 2]", None]
+    assert base["Prazo"].to_list()[1] is None
+    assert "3" in base["Prazo"].to_list()[0]
+    assert rejeitadas.height == 0

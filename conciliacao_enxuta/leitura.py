@@ -43,14 +43,18 @@ def _centavos(texto: pl.Expr) -> pl.Expr:
     separa grupos de 3 dígitos (`1.234`, `1.234.567`) e decimal nos outros casos (`1234.56`).
     """
     limpo = texto.str.replace_all(r"R\$|\s", "")
+    # Só dígito, ponto e vírgula, com um `-` na frente ou entre parênteses; qualquer outro caractere é ilegível
+    limpo = pl.when(limpo.str.contains(r"^(-?[\d.,]+|\([\d.,]+\))$")).then(limpo)
     negativo = limpo.str.starts_with("-") | (limpo.str.starts_with("(") & limpo.str.ends_with(")"))
     numero = limpo.str.replace_all(r"^[-(]|\)$", "")
     ponto_e_milhar = numero.str.contains(",") | numero.str.contains(r"^\d{1,3}(\.\d{3})+$")
     numero = pl.when(ponto_e_milhar).then(
         numero.str.replace_all(r"\.", "").str.replace(",", ".")
     ).otherwise(numero)
-    # Decimal, e não float, para os centavos saírem exatos; o que não vira número (ou não cabe) fica nulo
-    absoluto = (numero.cast(pl.Decimal(38, 2), strict=False) * 100).cast(pl.Int64, strict=False)
+    # Decimal, e não float, para os centavos saírem exatos; mais de 2 casas arredonda o meio para longe do zero.
+    # O que não vira número (ou não cabe) fica nulo
+    centavos = numero.cast(pl.Decimal(38, 10), strict=False) * 100
+    absoluto = centavos.round(0, mode="half_away_from_zero").cast(pl.Int64, strict=False)
     return pl.when(negativo).then(-absoluto).otherwise(absoluto)
 
 
@@ -105,8 +109,17 @@ def _em_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
 
 
 def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
-    """Atributo em texto, com o nome que veio no arquivo (só sem o BOM); valor só com espaço é vazio."""
-    texto = _em_texto(coluna, tipo)
+    """Atributo em texto, com o nome que veio no arquivo (só sem o BOM); valor só com espaço é vazio.
+
+    Aceita qualquer tipo: o que o polars não converte em texto (lista, duração, do `.parquet`) vai pelo `str` do Python.
+    """
+    if tipo.is_nested() or isinstance(tipo, pl.Duration):
+        texto = pl.col(coluna).map_batches(
+            lambda s: pl.Series([None if v is None else str(v) for v in s.to_list()], dtype=pl.String),
+            return_dtype=pl.String,
+        ).str.strip_chars()
+    else:
+        texto = _em_texto(coluna, tipo)
     return pl.when(texto != "").then(texto).alias(coluna.lstrip("\ufeff"))
 
 
