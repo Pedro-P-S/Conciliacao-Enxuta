@@ -8,6 +8,8 @@ from datetime import date
 import polars as pl
 
 TOLERANCIA_PADRAO = 100  # centavos: R$ 1,00
+SEM_PADRAO = "Sem padrão"
+SEPARADOR_DE_TIPOS = "; "
 
 
 class SemDataBaseComum(Exception):
@@ -41,9 +43,12 @@ class Resultado:
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
-    # As Chaves com Diferença da Data-base mais recente: Chave, A, B e Diferenca, por |Diferença| decrescente.
+    # As Chaves com Diferença da Data-base mais recente: Chave, A, B, Diferenca e Tipo, por |Diferença| decrescente.
     # O lado ausente vale 0. É DataFrame porque a lista pode ter centenas de milhares de linhas.
     operacoes: pl.DataFrame
+    # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
+    # Uma Chave com mais de um Tipo conta em cada um.
+    por_tipo: pl.DataFrame
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -58,6 +63,34 @@ def _sem_chave(fora: pl.DataFrame, comuns: list[date]) -> SemChave:
     """Conta e soma as linhas sem Chave das Data-bases que entram no cruzamento."""
     fora = fora.filter(pl.col("Data").is_in(comuns))
     return SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
+
+
+def _tipo_do_erro() -> pl.Expr:
+    """Todos os Tipos que se aplicam, separados por `; ` na ordem da spec; Sem padrão quando nenhum se aplica.
+
+    Espera as colunas A e B antes de o lado ausente virar 0 (nulo = a Chave não está naquela base).
+    """
+    tipos = [
+        ("Só em A", pl.col("B").is_null()),
+        ("Só em B", pl.col("A").is_null()),
+    ]
+    juntos = pl.concat_str(
+        [pl.when(condicao).then(pl.lit(nome)) for nome, condicao in tipos],
+        separator=SEPARADOR_DE_TIPOS,
+        ignore_nulls=True,
+    )
+    return pl.when(juntos == "").then(pl.lit(SEM_PADRAO)).otherwise(juntos).alias("Tipo")
+
+
+def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
+    """Uma linha por Tipo presente, com as Chaves e a Diferença absoluta; a Chave conta em cada Tipo que tem."""
+    return (
+        operacoes.select(pl.col("Tipo").str.split(SEPARADOR_DE_TIPOS), pl.col("Diferenca").abs())
+        .explode("Tipo")
+        .group_by("Tipo")
+        .agg(pl.len().cast(pl.Int64).alias("Chaves"), pl.col("Diferenca").sum().alias("Absoluta"))
+        .sort("Absoluta", "Tipo", descending=[True, False])
+    )
 
 
 def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Resultado:
@@ -87,7 +120,9 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
     )
     na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
     operacoes = (
-        na_mais_recente.select("Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca")
+        na_mais_recente.select(
+            "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro()
+        )
         .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
     )
 
@@ -105,4 +140,5 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         sem_chave_a=_sem_chave(sem_chave_a, comuns),
         sem_chave_b=_sem_chave(sem_chave_b, comuns),
         operacoes=operacoes,
+        por_tipo=_por_tipo(operacoes),
     )

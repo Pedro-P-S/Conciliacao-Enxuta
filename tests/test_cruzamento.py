@@ -182,11 +182,54 @@ def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_toler
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca"]
+    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo"]
     assert r.operacoes.rows() == [
-        ("grande", 100_000, 200_000, -100_000),
-        ("so_b", 0, 40_000, -40_000),
-        ("so_a", 30_000, 0, 30_000),
-        ("pequena", 10_200, 10_000, 200),
+        ("grande", 100_000, 200_000, -100_000, "Sem padrão"),
+        ("so_b", 0, 40_000, -40_000, "Só em B"),
+        ("so_a", 30_000, 0, 30_000, "Só em A"),
+        ("pequena", 10_200, 10_000, 200, "Sem padrão"),
     ]
     assert r.operacoes.height == r.chaves_com_diferenca
+
+
+def test_tipo_do_erro_so_em_a_so_em_b_e_sem_padrao():
+    a = base([("so_a", 30_000), ("so_a_dentro", 100), ("as_duas", 10_500), ("igual", 7_000)])
+    b = base([("so_b", 40_000), ("so_b_dentro", 50), ("as_duas", 10_000), ("igual", 7_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert dict(r.operacoes.select("Chave", "Tipo").iter_rows()) == {
+        "so_b": "Só em B",
+        "so_a": "Só em A",
+        "as_duas": "Sem padrão",
+    }
+
+
+def test_chave_presente_nas_duas_com_valor_zero_num_lado_nao_e_orfa():
+    a = base([("zero_em_a", 0), ("zero_em_b", 20_000)])
+    b = base([("zero_em_a", 30_000), ("zero_em_b", 0)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes["Tipo"].to_list() == ["Sem padrão", "Sem padrão"]
+
+
+def test_tipo_do_erro_e_calculado_so_na_data_base_mais_recente():
+    # x é Só em A na Data-base 1 e está nas duas na 2; y é Só em B só na Data-base 1.
+    a = base_com_data_bases({1: [("x", 50_000)], 2: [("x", 50_000), ("y", 9_000)]})
+    b = base_com_data_bases({1: [("y", 9_000)], 2: [("x", 10_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes.select("Chave", "Tipo").rows() == [("x", "Sem padrão"), ("y", "Só em A")]
+    assert r.por_tipo.rows() == [("Sem padrão", 1, 40_000), ("Só em A", 1, 9_000)]
+
+
+def test_por_tipo_do_erro_soma_chaves_e_diferenca_absoluta_da_maior_para_a_menor():
+    a = base([("a1", 1_000), ("a2", -2_000), ("p1", 10_000), ("p2", 50_000), ("p3", 1_000)])
+    b = base([("b1", 30_000), ("p1", 9_000), ("p2", 50_000), ("p3", 2_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_tipo.columns == ["Tipo", "Chaves", "Absoluta"]
+    assert r.por_tipo.rows() == [("Só em B", 1, 30_000), ("Só em A", 2, 3_000), ("Sem padrão", 2, 2_000)]

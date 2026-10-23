@@ -49,7 +49,9 @@ class Gabarito:
     sem_chave_b: SemChave
     data_bases_so_em_b: tuple[date, ...]
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
-    operacoes: tuple[tuple[str, int, int, int], ...]  # (Chave, A, B, Diferença), por |Diferença| decrescente
+    # (Chave, A, B, Diferença, Tipo do Erro), por |Diferença| decrescente
+    operacoes: tuple[tuple[str, int, int, int, str], ...]
+    por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -118,11 +120,14 @@ def _data_do_excel(data: date) -> str:
     return str((data - date(1899, 12, 30)).days)
 
 
-def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    """Uma Data-base: os valores de A e de B e as Diferenças plantadas acima da Tolerância, por Chave."""
+def _posicao(
+    sorteio: random.Random,
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, str]]:
+    """Uma Data-base: os valores de A e de B e as Diferenças plantadas acima da Tolerância e seus Tipos, por Chave."""
     a: dict[str, int] = {}
     b: dict[str, int] = {}
     diferencas: dict[str, int] = {}
+    tipos: dict[str, str] = {}
 
     for i in range(1, N_CHAVES + 1):
         chave = f"C{i:05d}"
@@ -131,22 +136,33 @@ def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], di
         if caso == 1:  # Diferença acima da Tolerância, positiva ou negativa
             delta = sorteio.choice([-1, 1]) * sorteio.randint(TOLERANCIA + 1, 500_000)
             a[chave], b[chave] = valor, valor - delta
-            diferencas[chave] = delta
+            diferencas[chave], tipos[chave] = delta, "Sem padrão"
         elif caso == 2:  # Diferença dentro da Tolerância
             a[chave], b[chave] = valor, valor - sorteio.randint(-TOLERANCIA, TOLERANCIA)
         elif caso == 3:  # Só em A
             a[chave] = valor
-            diferencas[chave] = valor
+            diferencas[chave], tipos[chave] = valor, "Só em A"
         elif caso == 4:  # Só em B
             b[chave] = valor
-            diferencas[chave] = -valor
+            diferencas[chave], tipos[chave] = -valor, "Só em B"
         else:
             a[chave] = b[chave] = valor
 
     # Órfãs dentro da Tolerância também não contam
     a["SO_A_CENTAVOS"] = TOLERANCIA
     b["SO_B_CENTAVOS"] = TOLERANCIA
-    return a, b, diferencas
+    return a, b, diferencas, tipos
+
+
+def _por_tipo(diferencas: dict[str, int], tipos: dict[str, str]) -> tuple[tuple[str, int, int], ...]:
+    """(Tipo, Chaves, Diferença absoluta) de cada Tipo plantado, da maior para a menor Diferença absoluta."""
+    soma: dict[str, tuple[int, int]] = {}
+    for chave, diferenca in diferencas.items():
+        chaves, absoluta = soma.get(tipos[chave], (0, 0))
+        soma[tipos[chave]] = (chaves + 1, absoluta + abs(diferenca))
+    return tuple(
+        sorted(((tipo, chaves, absoluta) for tipo, (chaves, absoluta) in soma.items()), key=lambda t: (-t[2], t[0]))
+    )
 
 
 def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
@@ -161,10 +177,12 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     posicoes_a: dict[date, dict[str, int]] = {}
     posicoes_b: dict[date, dict[str, int]] = {}
     plantadas: dict[date, dict[str, int]] = {}
+    tipos_plantados: dict[date, dict[str, str]] = {}
     for data in _dias_uteis(PRIMEIRA_DATA_BASE, DATA_BASE):
-        posicoes_a[data], posicoes_b[data], plantadas[data] = _posicao(sorteio)
+        posicoes_a[data], posicoes_b[data], plantadas[data], tipos_plantados[data] = _posicao(sorteio)
     a, b, diferencas = posicoes_a[DATA_BASE], posicoes_b[DATA_BASE], plantadas[DATA_BASE]
-    _, posicoes_b[SO_NA_BASE_B], _ = _posicao(sorteio)
+    tipos = tipos_plantados[DATA_BASE]  # o Tipo do Erro só vale na Data-base mais recente
+    _, posicoes_b[SO_NA_BASE_B], _, _ = _posicao(sorteio)
 
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
     # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato.
@@ -203,10 +221,11 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         historico=tuple((data, sum(abs(d) for d in ds.values())) for data, ds in plantadas.items()),
         operacoes=tuple(
             sorted(
-                ((chave, a.get(chave, 0), b.get(chave, 0), d) for chave, d in diferencas.items()),
+                ((chave, a.get(chave, 0), b.get(chave, 0), d, tipos[chave]) for chave, d in diferencas.items()),
                 key=lambda op: (-abs(op[3]), op[0]),
             )
         ),
+        por_tipo=_por_tipo(diferencas, tipos),
     )
 
 
