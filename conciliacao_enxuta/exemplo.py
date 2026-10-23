@@ -2,7 +2,7 @@
 
 As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar pelo cruzamento.
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
-Uso: `python -m conciliacao_enxuta.exemplo [PASTA]` (padrão: `exemplo`).
+Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
 
 from __future__ import annotations
@@ -13,6 +13,9 @@ import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+
+import openpyxl
+import polars as pl
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO as TOLERANCIA
 from conciliacao_enxuta.cruzamento import SemChave
@@ -65,7 +68,7 @@ def _sem_chave(linhas: list[tuple[str, int]]) -> SemChave:
     return SemChave(linhas=len(linhas), soma=sum(valor for _, valor in linhas))
 
 
-def _linhas_do_csv(
+def _linhas_da_base(
     valores: dict[str, int], repetidas: list[str], sem_chave: list[tuple[str, int]]
 ) -> list[tuple[str, int]]:
     """Uma linha por Chave; as `repetidas` saem em duas linhas que somam o Valor, e as sem Chave vão no fim."""
@@ -79,12 +82,28 @@ def _linhas_do_csv(
     return linhas + segundas + sem_chave
 
 
-def _escrever(caminho: Path, cabecalho: list[str], linhas: list[list[str]]) -> None:
+def _escrever_csv(caminho: Path, cabecalho: list[str], linhas: list[list[str]]) -> None:
     """`.csv` separado por `;` e com BOM, como o Excel salva no Brasil."""
     with caminho.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(cabecalho)
         w.writerows(linhas)
+
+
+def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple[str, date, int]]) -> None:
+    """`.xlsx` ou `.parquet` como o sistema exporta: Data como data e Valor como número em reais."""
+    if caminho.suffix == ".parquet":
+        chaves, datas, valores = zip(*linhas)
+        pl.DataFrame(
+            {cabecalho[0]: chaves, cabecalho[1]: datas, cabecalho[2]: [v / 100 for v in valores]}
+        ).write_parquet(caminho)
+        return
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet()
+    ws.append(cabecalho)
+    for chave, data, valor in linhas:
+        ws.append([chave, data, valor / 100])
+    wb.save(caminho)
 
 
 def _dias_uteis(inicio: date, fim: date) -> list[date]:
@@ -128,8 +147,11 @@ def _posicao(sorteio: random.Random) -> tuple[dict[str, int], dict[str, int], li
     return a, b, diferencas
 
 
-def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
-    """Escreve `base_a.csv` e `base_b.csv` em `pasta` e devolve o gabarito."""
+def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
+    """Escreve `base_a` e `base_b` em `pasta`, no `formato` (`csv`, `xlsx` ou `parquet`), e devolve o gabarito.
+
+    As bases são as mesmas em qualquer formato; muda só como a Data e o Valor estão gravados.
+    """
     pasta = Path(pasta)
     pasta.mkdir(parents=True, exist_ok=True)
     sorteio = random.Random(42)  # sempre as mesmas bases
@@ -142,29 +164,28 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
     a, b, diferencas = posicoes_a[DATA_BASE], posicoes_b[DATA_BASE], plantadas[DATA_BASE]
     _, posicoes_b[SO_NA_BASE_B], _ = _posicao(sorteio)
 
-    base_a, base_b = pasta / "base_a.csv", pasta / "base_b.csv"
+    base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
     # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato.
     # As linhas sem Chave vão na Data-base mais recente; a Base B as repete na Data-base ignorada, onde não contam.
-    _escrever(
-        base_a,
-        ["CHAVE", "data", "Valor "],
-        [
-            [chave, data.strftime("%d/%m/%Y"), _reais_com_rs(valor)]
-            for data, valores in posicoes_a.items()
-            for chave, valor in _linhas_do_csv(valores, REPETIDAS_A, SEM_CHAVE_A if data == DATA_BASE else [])
-        ],
-    )
-    _escrever(
-        base_b,
-        [" Chave", "DATA", "VALOR"],
-        [
-            [f" {chave} ", _data_do_excel(data), _reais_sem_milhar(valor)]
-            for data, valores in posicoes_b.items()
-            for chave, valor in _linhas_do_csv(
-                valores, REPETIDAS_B, SEM_CHAVE_B if data in (DATA_BASE, SO_NA_BASE_B) else []
-            )
-        ],
-    )
+    cabecalho_a, cabecalho_b = ["CHAVE", "data", "Valor "], [" Chave", "DATA", "VALOR"]
+    linhas_a = [
+        (chave, data, valor)
+        for data, valores in posicoes_a.items()
+        for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A if data == DATA_BASE else [])
+    ]
+    linhas_b = [
+        (f" {chave} ", data, valor)
+        for data, valores in posicoes_b.items()
+        for chave, valor in _linhas_da_base(
+            valores, REPETIDAS_B, SEM_CHAVE_B if data in (DATA_BASE, SO_NA_BASE_B) else []
+        )
+    ]
+    if formato == "csv":
+        _escrever_csv(base_a, cabecalho_a, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v)] for c, d, v in linhas_a])
+        _escrever_csv(base_b, cabecalho_b, [[c, _data_do_excel(d), _reais_sem_milhar(v)] for c, d, v in linhas_b])
+    else:
+        _escrever_nativo(base_a, cabecalho_a, linhas_a)
+        _escrever_nativo(base_b, cabecalho_b, linhas_b)
     return Gabarito(
         base_a=base_a,
         base_b=base_b,
@@ -181,4 +202,6 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
 
 
 if __name__ == "__main__":
-    print(gerar_bases_exemplo(sys.argv[1] if len(sys.argv) > 1 else "exemplo"))
+    pasta = sys.argv[1] if len(sys.argv) > 1 else "exemplo"
+    formato = sys.argv[2] if len(sys.argv) > 2 else "csv"
+    print(gerar_bases_exemplo(pasta, formato))

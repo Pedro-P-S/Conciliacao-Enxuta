@@ -27,7 +27,12 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
     assert capsys.readouterr().out.strip() == str(esperado)
     assert openpyxl.load_workbook(esperado).sheetnames == ["Resumo"]
 
-    resumo = ler_resumo(esperado)
+    conferir_quadro_do_resumo(esperado, gabarito)
+
+
+def conferir_quadro_do_resumo(caminho, gabarito) -> None:
+    """O quadro do Resumo bate com o gabarito, com a Tolerância padrão e os formatos de data e reais."""
+    resumo = ler_resumo(caminho)
     assert resumo["Data-base mais recente"].value == datetime.combine(gabarito.data_base, datetime.min.time())
     assert resumo["Data-base mais recente"].number_format == "DD/MM/YYYY"
     assert resumo["Tolerância"].value == 1.00
@@ -182,4 +187,53 @@ def test_base_vazia_tambem_da_a_mensagem_simples(tmp_path, capsys):
 
     assert main(["conciliar", str(base_a), str(base_b)]) == 1
     assert capsys.readouterr().err.strip() == "A Base A e a Base B não têm nenhuma Data-base em comum."
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
+@pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
+def test_bases_em_csv_xlsx_ou_parquet_dao_o_resumo_do_gabarito(tmp_path, capsys, formato):
+    gabarito = gerar_bases_exemplo(tmp_path, formato)
+    assert gabarito.base_a.suffix == gabarito.base_b.suffix == f".{formato}"
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    conferir_quadro_do_resumo(caminho, gabarito)
+    assert ler_aviso_sem_chave(caminho) == {
+        "Base A": (gabarito.sem_chave_a.linhas, gabarito.sem_chave_a.soma / 100, FORMATO_REAIS),
+        "Base B": (gabarito.sem_chave_b.linhas, gabarito.sem_chave_b.soma / 100, FORMATO_REAIS),
+    }
+    assert avisos_de_data_bases_ignoradas(caminho) == [
+        "Data-bases ignoradas por estarem só na Base B: 01/10/2026."
+    ]
+
+
+def valores_do_resumo(caminho) -> list:
+    return [[c.value for c in linha] for linha in openpyxl.load_workbook(caminho)["Resumo"].iter_rows()]
+
+
+def test_base_a_em_xlsx_e_base_b_em_parquet_dao_o_mesmo_resumo_que_em_csv(tmp_path, capsys):
+    em_csv = gerar_bases_exemplo(tmp_path / "csv")
+    em_xlsx = gerar_bases_exemplo(tmp_path / "misturado", "xlsx")
+    em_parquet = gerar_bases_exemplo(tmp_path / "misturado", "parquet")
+
+    main(["conciliar", str(em_csv.base_a), str(em_csv.base_b)])
+    main(["conciliar", str(em_xlsx.base_a), str(em_parquet.base_b)])
+
+    caminho_csv, caminho_misturado = capsys.readouterr().out.split()
+    assert valores_do_resumo(caminho_misturado) == valores_do_resumo(caminho_csv)
+
+
+def test_extensao_nao_suportada_da_mensagem_simples_com_o_nome_do_arquivo(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    estranho = tmp_path / "base_b.txt"
+    estranho.write_text("Chave;Data;Valor\n", encoding="utf-8")
+
+    codigo = main(["conciliar", str(gabarito.base_a), str(estranho)])
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.out == ""
+    assert saida.err.strip() == "base_b.txt: formato não suportado. Use .csv, .xlsx ou .parquet."
+    assert "Traceback" not in saida.err
     assert not list(tmp_path.glob("*.xlsx"))

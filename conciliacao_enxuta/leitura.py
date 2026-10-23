@@ -1,4 +1,8 @@
-"""Leitura de uma base: arquivo → DataFrame com Chave, Data e Valor em centavos."""
+"""Leitura de uma base: arquivo → DataFrame com Chave, Data e Valor em centavos.
+
+O `.csv` é lido todo como texto. O `.xlsx` e o `.parquet` mantêm os tipos nativos: número segue número
+(um `2.125` numérico vale R$ 2,13, e não vira milhar) e data segue data.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,10 @@ from pathlib import Path
 import polars as pl
 
 COLUNAS = ("Chave", "Data", "Valor")
+
+
+class FormatoNaoSuportado(ValueError):
+    """A base não é `.csv`, `.xlsx` nem `.parquet`."""
 
 
 def _comparavel(nome: str) -> str:
@@ -42,12 +50,16 @@ def _centavos(texto: pl.Expr) -> pl.Expr:
 
 
 def _data(texto: pl.Expr) -> pl.Expr:
-    """`31/01/2026`, `2026-01-31` ou a data do Excel (`46053`, dias desde 30/12/1899) → data."""
+    """`31/01/2026`, `2026-01-31` ou a data do Excel (`46053`, dias desde 30/12/1899) → data.
+
+    Aceita também `2026-01-31 00:00:00`, como vem a data nativa de um `.xlsx` numa coluna de tipos misturados.
+    """
     texto = texto.str.strip_chars()
     dias_do_excel = texto.str.extract(r"^(\d{1,7})$").cast(pl.Int64)
     return pl.coalesce(
         texto.str.to_date("%d/%m/%Y", strict=False),
         texto.str.to_date("%Y-%m-%d", strict=False),
+        texto.str.to_datetime("%Y-%m-%d %H:%M:%S", strict=False).dt.date(),
         pl.date(1899, 12, 30) + pl.duration(days=dias_do_excel),
     )
 
@@ -58,19 +70,60 @@ def _separador(caminho: str | Path) -> str:
         return ";" if ";" in f.readline() else ","
 
 
-def ler_base(caminho: str | Path) -> pl.DataFrame:
-    """Lê um `.csv` separado por `;` ou `,` com as colunas `Chave`, `Data` e `Valor`.
+def _ler_tabela(caminho: Path) -> pl.DataFrame:
+    """O arquivo como veio: `.csv` todo texto; `.xlsx` (primeira aba) e `.parquet` com os tipos nativos."""
+    extensao = caminho.suffix.lower()
+    if extensao == ".csv":
+        return pl.read_csv(caminho, separator=_separador(caminho), infer_schema=False)
+    if extensao == ".xlsx":
+        # O tipo sai de todas as linhas, não de uma amostra: senão um texto depois da amostra numérica
+        # vira vazio, e a linha some. Uma coluna com tipos misturados vem como texto.
+        return pl.read_excel(caminho, infer_schema_length=None)
+    if extensao == ".parquet":
+        return pl.read_parquet(caminho)
+    raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
 
-    Data em `DD/MM/AAAA`, `AAAA-MM-DD` ou data do Excel; Valor no formato brasileiro (ver `_centavos`).
+
+def _chave_em_texto(tipo: pl.DataType) -> pl.Expr:
+    """Chave numérica vira texto sem `.0` no fim (`123.0` → `123`)."""
+    chave = pl.col("Chave").cast(pl.String)
+    return chave.str.replace(r"\.0$", "") if tipo.is_float() else chave
+
+
+def _data_de(tipo: pl.DataType) -> pl.Expr:
+    """Data nativa fica como está; número é a data do Excel; texto passa por `_data`."""
+    if tipo in (pl.Date, pl.Datetime):
+        return pl.col("Data").cast(pl.Date)
+    if tipo.is_numeric():
+        return _data(pl.col("Data").cast(pl.Int64).cast(pl.String))
+    return _data(pl.col("Data"))
+
+
+def _centavos_de(tipo: pl.DataType) -> pl.Expr:
+    """Valor numérico, em reais, vira centavos arredondados; texto passa por `_centavos`."""
+    if tipo.is_integer():
+        return pl.col("Valor").cast(pl.Int64) * 100
+    if tipo.is_numeric():
+        # Primeiro tira o ruído do float (1.005 * 100 = 100.4999...), depois arredonda o meio para longe do zero
+        return (pl.col("Valor") * 100).round(6).round(0, mode="half_away_from_zero").cast(pl.Int64)
+    return _centavos(pl.col("Valor"))
+
+
+def ler_base(caminho: str | Path) -> pl.DataFrame:
+    """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
+
+    Data em `DD/MM/AAAA`, `AAAA-MM-DD`, data do Excel ou data nativa; Valor numérico ou no formato
+    brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
     """
-    df = _renomear_colunas(pl.read_csv(caminho, separator=_separador(caminho), infer_schema=False))
+    caminho = Path(caminho)
+    df = _renomear_colunas(_ler_tabela(caminho))
     base = df.select(
-        pl.col("Chave").str.strip_chars(),
-        _data(pl.col("Data")),
-        _centavos(pl.col("Valor")),
+        _chave_em_texto(df.schema["Chave"]).str.strip_chars(),
+        _data_de(df.schema["Data"]),
+        _centavos_de(df.schema["Valor"]),
     )
     # Uma Data que não pôde ser lida não pode sumir do cruzamento sem aviso
     ilegiveis = df["Data"].filter(base["Data"].is_null() & df["Data"].is_not_null())
     if len(ilegiveis):
-        raise ValueError(f"{Path(caminho).name}: Data ilegível: {ilegiveis[0]!r}")
+        raise ValueError(f"{caminho.name}: Data ilegível: {ilegiveis[0]!r}")
     return base

@@ -1,7 +1,9 @@
-"""Leitura de `.csv`: nomes de coluna flexíveis, Valor e Data no formato brasileiro."""
+"""Leitura de `.csv`, `.xlsx` e `.parquet`: nomes de coluna flexíveis, Valor e Data no formato brasileiro ou nativos."""
 
 from datetime import date
 
+import openpyxl
+import polars as pl
 import pytest
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
@@ -81,3 +83,51 @@ def test_data_ilegivel_nao_some_em_silencio(tmp_path, texto):
 
     with pytest.raises(ValueError, match=texto):
         ler_base(caminho)
+
+
+def test_xlsx_com_valor_numerico_data_do_excel_e_chave_numerica(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Chave", "Data", "Valor"])
+    ws.append([123, date(2026, 9, 30), 2.125])
+    ws.append([" C1 ", date(2026, 9, 30), -1234.56])
+    ws.append([456, date(2026, 9, 30), 10])
+    wb.save(caminho)
+
+    base = ler_base(caminho)
+
+    assert base["Chave"].to_list() == ["123", "C1", "456"]
+    assert base["Data"].to_list() == [date(2026, 9, 30)] * 3
+    assert base["Valor"].to_list() == [213, -123_456, 1000]
+
+
+def test_parquet_com_tipos_nativos(tmp_path):
+    caminho = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"CHAVE": [7, 8], "data": [date(2026, 9, 30), date(2026, 9, 30)], "Valor": [0.29, -1234.56]}
+    ).write_parquet(caminho)
+
+    base = ler_base(caminho)
+
+    assert base["Chave"].to_list() == ["7", "8"]
+    assert base["Data"].to_list() == [date(2026, 9, 30)] * 2
+    assert base["Valor"].to_list() == [29, -123_456]
+
+
+def test_xlsx_com_tipos_misturados_na_coluna_nao_perde_linha_nem_valor(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Chave", "Data", "Valor"])
+    for i in range(150):  # mais linhas do que a amostra que o leitor usa para adivinhar o tipo
+        ws.append([i, date(2026, 9, 30), 1234.56])
+    ws.append(["X1", "30/09/2026", "R$ 1.234,56"])
+    wb.save(caminho)
+
+    base = ler_base(caminho)
+
+    assert base.height == 151
+    assert base["Chave"].to_list()[-2:] == ["149", "X1"]
+    assert base["Data"].unique().to_list() == [date(2026, 9, 30)]
+    assert base["Valor"].unique().to_list() == [123_456]
