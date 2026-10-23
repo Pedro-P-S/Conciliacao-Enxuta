@@ -259,9 +259,20 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         (pl.col("A").fill_null(0) - pl.col("B").fill_null(0)).alias("Diferenca")
     )
     com_diferenca = cruzado.filter(pl.col("Diferenca").abs() > tolerancia)
+    # Cada linha sem Chave é uma Diferença do valor inteiro: +Valor em A, −Valor em B, uma linha por vez
+    soltas = pl.concat(
+        [
+            sem_chave_a.select("Data", pl.col("Valor").alias("Diferenca")),
+            sem_chave_b.select("Data", (-pl.col("Valor")).alias("Diferenca")),
+        ]
+    ).filter(pl.col("Diferenca").abs() > tolerancia)
+    soltas_na_mais_recente = soltas.filter(pl.col("Data") == data_base)["Diferenca"]
 
     absoluta_por_data = dict(
-        com_diferenca.group_by("Data").agg(pl.col("Diferenca").abs().sum()).iter_rows()
+        pl.concat([com_diferenca.select("Data", "Diferenca"), soltas])
+        .group_by("Data")
+        .agg(pl.col("Diferenca").abs().sum())
+        .iter_rows()
     )
     na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
     a_na_mais_recente = base_a.filter(pl.col("Data") == data_base)
@@ -277,10 +288,10 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
     return Resultado(
         data_base=data_base,
         tolerancia=tolerancia,
-        total_a=int(a.filter(pl.col("Data") == data_base)["A"].sum()),
-        total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()),
-        diferenca_total=int(na_mais_recente["Diferenca"].sum()),
-        diferenca_absoluta=int(na_mais_recente["Diferenca"].abs().sum()),
+        total_a=int(a.filter(pl.col("Data") == data_base)["A"].sum()) + _sem_chave(sem_chave_a, data_base).soma,
+        total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()) + _sem_chave(sem_chave_b, data_base).soma,
+        diferenca_total=int(na_mais_recente["Diferenca"].sum() + soltas_na_mais_recente.sum()),
+        diferenca_absoluta=int(na_mais_recente["Diferenca"].abs().sum() + soltas_na_mais_recente.abs().sum()),
         chaves_com_diferenca=na_mais_recente.height,
         data_bases_so_em_a=tuple(sorted(datas_a - datas_b)),
         data_bases_so_em_b=tuple(sorted(datas_b - datas_a)),
