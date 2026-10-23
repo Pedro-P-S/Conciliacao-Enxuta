@@ -10,6 +10,10 @@ import polars as pl
 COLUNAS = ("Chave", "Data", "Valor")
 
 
+class ErroDeLeitura(ValueError):
+    """Um arquivo que não serve, com a explicação em linguagem simples."""
+
+
 def _comparavel(nome: str) -> str:
     """Nome de coluna sem BOM, espaço nas pontas, maiúscula e acento: ` Dáta ` → `data`."""
     sem_acento = unicodedata.normalize("NFKD", nome.lstrip("\ufeff").strip())
@@ -36,8 +40,8 @@ def _centavos(texto: pl.Expr) -> pl.Expr:
     numero = pl.when(ponto_e_milhar).then(
         numero.str.replace_all(r"\.", "").str.replace(",", ".")
     ).otherwise(numero)
-    # Decimal, e não float, para os centavos saírem exatos
-    absoluto = (numero.cast(pl.Decimal(38, 2)) * 100).cast(pl.Int64)
+    # Decimal, e não float, para os centavos saírem exatos; o que não vira número (ou não cabe) fica nulo
+    absoluto = (numero.cast(pl.Decimal(38, 2), strict=False) * 100).cast(pl.Int64, strict=False)
     return pl.when(negativo).then(-absoluto).otherwise(absoluto)
 
 
@@ -63,14 +67,27 @@ def ler_base(caminho: str | Path) -> pl.DataFrame:
 
     Data em `DD/MM/AAAA`, `AAAA-MM-DD` ou data do Excel; Valor no formato brasileiro (ver `_centavos`).
     """
-    df = _renomear_colunas(pl.read_csv(caminho, separator=_separador(caminho), infer_schema=False))
+    arquivo = Path(caminho).name
+    lido = pl.read_csv(caminho, separator=_separador(caminho), infer_schema=False)
+    df = _renomear_colunas(lido)
+    faltam = [c for c in COLUNAS if c not in df.columns]
+    if faltam:
+        encontradas = ", ".join(c.lstrip("\ufeff").strip() for c in lido.columns)
+        falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
+        raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
     base = df.select(
         pl.col("Chave").str.strip_chars(),
         _data(pl.col("Data")),
         _centavos(pl.col("Valor")),
     )
-    # Uma Data que não pôde ser lida não pode sumir do cruzamento sem aviso
-    ilegiveis = df["Data"].filter(base["Data"].is_null() & df["Data"].is_not_null())
-    if len(ilegiveis):
-        raise ValueError(f"{Path(caminho).name}: Data ilegível: {ilegiveis[0]!r}")
+    # Um Valor ou uma Data que não pôde ser lido não pode sumir do cruzamento sem aviso.
+    # A linha é a do arquivo: o cabeçalho é a linha 1.
+    tem_chave = base["Chave"].fill_null("") != ""
+    for coluna, mensagem_se_vazio in (("Valor", "Valor vazio"), ("Data", "Data vazia")):
+        linhas_ruins = (base[coluna].is_null() & (df[coluna].is_not_null() | tem_chave)).arg_true()
+        if len(linhas_ruins):
+            i = linhas_ruins[0]
+            texto = df[coluna][i]
+            erro = mensagem_se_vazio if texto is None else f"{coluna} ilegível: {texto!r}"
+            raise ErroDeLeitura(f"{arquivo}, linha {i + 2}: {erro}.")
     return base
