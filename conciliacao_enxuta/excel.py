@@ -13,6 +13,8 @@ from conciliacao_enxuta.cruzamento import Resultado
 # Código de formato do Excel; no Excel em português aparece como #.##0,00.
 FORMATO_REAIS = "#,##0.00"
 FORMATO_DATA = "DD/MM/YYYY"
+# A célula continua data, para ordenar e filtrar; só o que o Excel mostra ganha o " ou antes".
+FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 
@@ -39,6 +41,15 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
 
     # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
     linha = len(quadro) + 2
+    if resultado.abertas_desde_a_primeira:
+        primeira = resultado.historico[0][0]
+        ws.cell(
+            linha,
+            1,
+            f"Chaves com Diferença desde a primeira Data-base ({primeira:%d/%m/%Y}) ou antes: "
+            f"{resultado.abertas_desde_a_primeira}. A Diferença delas pode ser ainda mais antiga.",
+        )
+        linha += 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
         for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)
@@ -111,16 +122,19 @@ def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
     """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro."""
     ws = wb.create_sheet("Operações com Diferença")
-    for coluna, titulo in enumerate(["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro"], start=1):
+    titulos = ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    for coluna, titulo in enumerate(titulos, start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
-    for linha, (chave, a, b, diferenca, tipo) in enumerate(resultado.operacoes.iter_rows(), start=2):
+    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(resultado.operacoes.iter_rows(), start=2):
         ws.cell(linha, 1, chave)
         for coluna, centavos in enumerate((a, b, diferenca), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 5, tipo)
+        ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:E{resultado.operacoes.height + 1}"
+    ws.auto_filter.ref = f"A1:F{resultado.operacoes.height + 1}"
     ws.column_dimensions["A"].width = 24
     for letra in "BCD":
         ws.column_dimensions[letra].width = 18
     ws.column_dimensions["E"].width = 24
+    ws.column_dimensions["F"].width = 22

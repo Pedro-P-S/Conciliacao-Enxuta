@@ -43,9 +43,11 @@ class Resultado:
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
-    # As Chaves com Diferença da Data-base mais recente: Chave, A, B, Diferenca e Tipo, por |Diferença| decrescente.
+    # As Chaves com Diferença da Data-base mais recente: Chave, A, B, Diferenca, Tipo, Desde (o Aberta desde)
+    # e OuAntes (o Aberta desde é a primeira Data-base comum), por |Diferença| decrescente.
     # O lado ausente vale 0. É DataFrame porque a lista pode ter centenas de milhares de linhas.
     operacoes: pl.DataFrame
+    abertas_desde_a_primeira: int  # as Chaves com OuAntes
     # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
     # Uma Chave com mais de um Tipo conta em cada um.
     por_tipo: pl.DataFrame
@@ -80,6 +82,26 @@ def _tipo_do_erro() -> pl.Expr:
         ignore_nulls=True,
     )
     return pl.when(juntos == "").then(pl.lit(SEM_PADRAO)).otherwise(juntos).alias("Tipo")
+
+
+def _aberta_desde(com_diferenca: pl.DataFrame, comuns: list[date]) -> pl.DataFrame:
+    """Chave, Desde e OuAntes das Chaves com Diferença na Data-base mais recente.
+
+    Desde é a primeira Data-base da sequência contínua de Data-bases comuns com Diferença que chega até a mais
+    recente. Numa Data-base em que a Chave está dentro da Tolerância ou fora das duas bases, a sequência se quebra.
+    Na sequência, a Chave com Diferença na i-ésima Data-base (contando de 0) é a (n − i)-ésima mais recente das
+    suas Data-bases com Diferença; antes de uma quebra, é menos que isso.
+    """
+    n = len(comuns)
+    indices = pl.DataFrame({"Data": comuns, "i": range(n)}, schema={"Data": pl.Date, "i": pl.Int64})
+    return (
+        com_diferenca.select("Chave", "Data")
+        .join(indices, on="Data")
+        .filter(pl.col("i") + pl.col("i").rank("ordinal", descending=True).over("Chave").cast(pl.Int64) == n)
+        .group_by("Chave")
+        .agg(pl.col("Data").min().alias("Desde"))
+        .with_columns((pl.col("Desde") == comuns[0]).alias("OuAntes"))
+    )
 
 
 def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
@@ -123,6 +145,7 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         na_mais_recente.select(
             "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro()
         )
+        .join(_aberta_desde(com_diferenca, comuns), on="Chave", how="left")
         .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
     )
 
@@ -140,5 +163,6 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         sem_chave_a=_sem_chave(sem_chave_a, comuns),
         sem_chave_b=_sem_chave(sem_chave_b, comuns),
         operacoes=operacoes,
+        abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),
         por_tipo=_por_tipo(operacoes),
     )

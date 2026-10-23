@@ -31,6 +31,14 @@ REPETIDAS_B = ["C00006", "C00021"]
 # Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento
 SEM_CHAVE_A = [("", 12_345), ("   ", -2_000)]
 SEM_CHAVE_B = [("", 77_700)]
+# Chaves de Diferença plantada que ficam sem ela de uma Data-base a outra, inclusive, com esta Diferença.
+# O Aberta desde delas é o dia útil seguinte; as outras têm Diferença desde a primeira Data-base ("ou antes"),
+# com outro valor a cada dia.
+PAUSAS = {
+    "C00021": (date(2026, 6, 15), date(2026, 6, 15), 0),  # some e volta: Aberta desde 16/06/2026
+    "C00031": (date(2026, 9, 29), date(2026, 9, 29), TOLERANCIA),  # cai para dentro da Tolerância: 30/09/2026
+    "C00051": (PRIMEIRA_DATA_BASE, date(2026, 7, 31), 0),  # só abre depois: 03/08/2026
+}
 
 
 @dataclass(frozen=True)
@@ -51,6 +59,8 @@ class Gabarito:
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
     # (Chave, A, B, Diferença, Tipo do Erro), por |Diferença| decrescente
     operacoes: tuple[tuple[str, int, int, int, str], ...]
+    aberta_desde: dict[str, date]  # das Chaves das operações
+    abertas_desde_a_primeira: int
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
 
 
@@ -121,7 +131,7 @@ def _data_do_excel(data: date) -> str:
 
 
 def _posicao(
-    sorteio: random.Random,
+    sorteio: random.Random, data: date
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, str]]:
     """Uma Data-base: os valores de A e de B e as Diferenças plantadas acima da Tolerância e seus Tipos, por Chave."""
     a: dict[str, int] = {}
@@ -135,8 +145,12 @@ def _posicao(
         caso = i % 10
         if caso == 1:  # Diferença acima da Tolerância, positiva ou negativa
             delta = sorteio.choice([-1, 1]) * sorteio.randint(TOLERANCIA + 1, 500_000)
-            a[chave], b[chave] = valor, valor - delta
-            diferencas[chave], tipos[chave] = delta, "Sem padrão"
+            inicio, fim, na_pausa = PAUSAS.get(chave, (None, None, None))
+            if inicio and inicio <= data <= fim:
+                a[chave], b[chave] = valor, valor - na_pausa
+            else:
+                a[chave], b[chave] = valor, valor - delta
+                diferencas[chave], tipos[chave] = delta, "Sem padrão"
         elif caso == 2:  # Diferença dentro da Tolerância
             a[chave], b[chave] = valor, valor - sorteio.randint(-TOLERANCIA, TOLERANCIA)
         elif caso == 3:  # Só em A
@@ -165,6 +179,16 @@ def _por_tipo(diferencas: dict[str, int], tipos: dict[str, str]) -> tuple[tuple[
     )
 
 
+def _aberta_desde(chave: str, plantadas: dict[date, dict[str, int]]) -> date:
+    """A primeira Data-base da sequência de Data-bases seguidas, até a mais recente, em que a Chave tem Diferença."""
+    desde = DATA_BASE
+    for data in reversed(list(plantadas)):
+        if chave not in plantadas[data]:
+            break
+        desde = data
+    return desde
+
+
 def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     """Escreve `base_a` e `base_b` em `pasta`, no `formato` (`csv`, `xlsx` ou `parquet`), e devolve o gabarito.
 
@@ -179,10 +203,12 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     plantadas: dict[date, dict[str, int]] = {}
     tipos_plantados: dict[date, dict[str, str]] = {}
     for data in _dias_uteis(PRIMEIRA_DATA_BASE, DATA_BASE):
-        posicoes_a[data], posicoes_b[data], plantadas[data], tipos_plantados[data] = _posicao(sorteio)
+        posicoes_a[data], posicoes_b[data], plantadas[data], tipos_plantados[data] = _posicao(sorteio, data)
     a, b, diferencas = posicoes_a[DATA_BASE], posicoes_b[DATA_BASE], plantadas[DATA_BASE]
     tipos = tipos_plantados[DATA_BASE]  # o Tipo do Erro só vale na Data-base mais recente
-    _, posicoes_b[SO_NA_BASE_B], _, _ = _posicao(sorteio)
+    _, posicoes_b[SO_NA_BASE_B], _, _ = _posicao(sorteio, SO_NA_BASE_B)
+
+    aberta_desde = {chave: _aberta_desde(chave, plantadas) for chave in diferencas}
 
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
     # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato.
@@ -226,6 +252,8 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
             )
         ),
         por_tipo=_por_tipo(diferencas, tipos),
+        aberta_desde=aberta_desde,
+        abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
     )
 
 
