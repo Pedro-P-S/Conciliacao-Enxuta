@@ -1,4 +1,5 @@
-"""Leitura de uma base: arquivo → DataFrame com Chave, Data, Valor em centavos e os Atributos em texto.
+"""Leitura de uma base: arquivo → DataFrame com Chave, Data, Valor em centavos e os Atributos em texto,
+e as Linhas rejeitadas (Data ou Valor vazio ou ilegível).
 
 O `.csv` é lido todo como texto. O `.xlsx` e o `.parquet` mantêm os tipos nativos: número segue número
 (um `2.125` numérico vale R$ 2,13, e não vira milhar) e data segue data.
@@ -89,7 +90,8 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     if extensao == ".xlsx":
         # O tipo sai de todas as linhas, não de uma amostra: senão um texto depois da amostra numérica
         # vira vazio, e a linha some. Uma coluna com tipos misturados vem como texto.
-        return pl.read_excel(caminho, infer_schema_length=None)
+        # A linha vazia fica, para a numeração das Linhas rejeitadas ser a que o usuário vê.
+        return pl.read_excel(caminho, infer_schema_length=None, drop_empty_rows=False)
     if extensao == ".parquet":
         return pl.read_parquet(caminho)
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
@@ -127,8 +129,11 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return _centavos(pl.col("Valor"))
 
 
-def ler_base(caminho: str | Path) -> pl.DataFrame:
+def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
+
+    Devolve a base e as Linhas rejeitadas: a Data ou o Valor vazio ou ilegível rejeita a linha, que fica fora
+    da base. As rejeitadas trazem a Linha, a Chave, a Data e o Valor como vieram, em texto, e o Motivo.
 
     Toda outra coluna é Atributo, em texto e com o nome que veio no arquivo (vazio vira nulo).
 
@@ -150,15 +155,23 @@ def ler_base(caminho: str | Path) -> pl.DataFrame:
         _centavos_de(df.schema["Valor"]),
         *(_atributo(c, tipo) for c, tipo in df.schema.items() if c not in COLUNAS),
     )
-    # Um Valor ou uma Data que não pôde ser lido não pode sumir do cruzamento sem aviso.
-    # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; o `.parquet` não tem cabeçalho.
+    # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; no `.parquet`, não há cabeçalho.
     primeira_linha = 1 if caminho.suffix.lower() == ".parquet" else 2
-    tem_chave = base["Chave"].fill_null("") != ""
-    for coluna, mensagem_se_vazio in (("Valor", "Valor vazio"), ("Data", "Data vazia")):
-        linhas_ruins = (base[coluna].is_null() & (df[coluna].is_not_null() | tem_chave)).arg_true()
-        if len(linhas_ruins):
-            i = linhas_ruins[0]
-            texto = df[coluna][i]
-            erro = mensagem_se_vazio if texto is None else f"{coluna} ilegível: {texto!r}"
-            raise ErroDeLeitura(f"{arquivo}, linha {i + primeira_linha}: {erro}.")
-    return base
+    como_veio = {c: pl.col(c).cast(pl.String) for c in ("Data", "Valor")}
+    vazio = {c: texto.str.strip_chars().fill_null("") == "" for c, texto in como_veio.items()}
+    chave = _em_texto("Chave", df.schema["Chave"])
+    lidas = df.select(
+        (pl.int_range(pl.len()) + primeira_linha).alias("Linha"),
+        pl.when(chave != "").then(chave).alias("Chave"),
+        como_veio["Data"].alias("Data"),
+        como_veio["Valor"].alias("Valor"),
+        pl.when(vazio["Data"]).then(pl.lit("Data vazia"))
+        .when(base["Data"].is_null()).then(pl.lit("Data ilegível"))
+        .when(vazio["Valor"]).then(pl.lit("Valor vazio"))
+        .when(base["Valor"].is_null()).then(pl.lit("Valor ilegível"))
+        .alias("Motivo"),
+    )
+    # A linha toda vazia (sem Chave, Data e Valor) é ignorada em silêncio
+    toda_vazia = lidas["Chave"].is_null() & df.select(vazio["Data"] & vazio["Valor"]).to_series()
+    rejeitada = lidas["Motivo"].is_not_null() & ~toda_vazia
+    return base.filter(~rejeitada & ~toda_vazia), lidas.filter(rejeitada)

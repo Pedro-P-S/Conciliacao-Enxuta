@@ -48,6 +48,9 @@ class Resultado:
     chaves_com_diferenca: int
     sem_chave_a: SemChave  # só na Data-base mais recente
     sem_chave_b: SemChave
+    # As Linhas rejeitadas da Base A e depois da Base B, na ordem do arquivo, fora de tudo:
+    # Base, Linha, Chave, Data, Valor (como vieram, em texto) e Motivo
+    rejeitadas: pl.DataFrame
     data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
     data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
@@ -67,6 +70,26 @@ class Resultado:
     # e Concentracao (fração da Diferença absoluta − fração do peso no total), por Diferença absoluta decrescente.
     # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
+
+
+COLUNAS_DAS_REJEITADAS = {
+    "Linha": pl.Int64,
+    "Chave": pl.String,
+    "Data": pl.String,
+    "Valor": pl.String,
+    "Motivo": pl.String,
+}
+
+
+def _rejeitadas(rejeitadas_a: pl.DataFrame | None, rejeitadas_b: pl.DataFrame | None) -> pl.DataFrame:
+    """As Linhas rejeitadas das duas bases numa lista só, com a Base na frente."""
+    vazia = pl.DataFrame(schema=COLUNAS_DAS_REJEITADAS)
+    return pl.concat(
+        (vazia if r is None else r.select(*COLUNAS_DAS_REJEITADAS).cast(COLUNAS_DAS_REJEITADAS)).select(
+            pl.lit(nome).alias("Base"), pl.all()
+        )
+        for nome, r in (("Base A", rejeitadas_a), ("Base B", rejeitadas_b))
+    )
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -238,8 +261,16 @@ def _por_idade(operacoes: pl.DataFrame, data_base: date) -> tuple[tuple[str, int
     return tuple(faixas)
 
 
-def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Resultado:
+def conciliar(
+    base_a: pl.DataFrame,
+    base_b: pl.DataFrame,
+    tolerancia: int,
+    rejeitadas_a: pl.DataFrame | None = None,
+    rejeitadas_b: pl.DataFrame | None = None,
+) -> Resultado:
     """Cruza as bases em cada Data-base comum às duas; os totais são os da mais recente.
+
+    As Linhas rejeitadas, que a leitura já tirou das bases, só passam para o Resultado, com a base.
 
     Antes, a Preparação tira as linhas sem Chave e soma as de mesma Chave e Data-base.
     Junção completa pela Chave dentro de cada Data-base; Diferença = A − B, com o lado que falta valendo 0.
@@ -298,6 +329,7 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         historico=tuple((data, int(absoluta_por_data.get(data, 0))) for data in comuns),
         sem_chave_a=_sem_chave(sem_chave_a, data_base),
         sem_chave_b=_sem_chave(sem_chave_b, data_base),
+        rejeitadas=_rejeitadas(rejeitadas_a, rejeitadas_b),
         operacoes=operacoes,
         atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),
         por_tipo=_por_tipo(operacoes),

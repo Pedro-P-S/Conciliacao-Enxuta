@@ -39,7 +39,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        resultado = conciliar(ler_base(args.base_a), ler_base(args.base_b), args.tolerancia)
+        (base_a, rejeitadas_a), (base_b, rejeitadas_b) = ler_base(args.base_a), ler_base(args.base_b)
+        resultado = conciliar(base_a, base_b, args.tolerancia, rejeitadas_a, rejeitadas_b)
     except (ErroDeLeitura, SemDataBaseComum) as erro:
         print(erro, file=sys.stderr)
         return 1

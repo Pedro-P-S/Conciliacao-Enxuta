@@ -4,6 +4,7 @@ As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
 A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial. As duas trazem a
 Carteira, em que Legado concentra a Diferença, e a Moeda, BRL em todas as Chaves.
+No fim de cada base vêm Linhas rejeitadas, uma de cada motivo, que ficam fora de tudo.
 No `.csv`, a Base A sai em UTF-8 com BOM e a Base B em cp1252, as duas formas do Excel em português.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
@@ -37,6 +38,14 @@ REPETIDAS_B = ["C00006", "C00021"]
 SEM_CHAVE_A = [("", 12_345), ("   ", -2_000)]
 SEM_CHAVE_B = [("", 77_700)]
 DIFERENCAS_SEM_CHAVE = [v for _, v in SEM_CHAVE_A] + [-v for _, v in SEM_CHAVE_B]
+# Linhas rejeitadas, no fim da base: (Chave, Data, Valor, Motivo), gravadas assim mesmo no arquivo, em texto, e no
+# `.xlsx` também. O `.parquet` tem tipos nativos e não guarda Data nem Valor ilegível: lá, só a Base B as traz.
+REJEITADAS_A = [
+    ("C00002", None, "10,00", "Data vazia"),
+    ("C00003", "31/02/2026", "10,00", "Data ilegível"),
+    (None, "30/09/2026", "abc", "Valor ilegível"),  # sem Chave: rejeitada, e não vira linha sem Chave
+]
+REJEITADAS_B = [(" C00006 ", DATA_BASE, None, "Valor vazio")]  # a Data é data no `.xlsx` e no `.parquet`
 # Chaves de Diferença plantada que ficam sem ela de uma Data-base a outra, inclusive, com esta Diferença.
 # O Aberta desde delas é o dia útil seguinte; as outras têm Diferença desde a primeira Data-base ("ou antes"),
 # com outro valor a cada dia.
@@ -75,6 +84,8 @@ class Gabarito:
     chaves_com_diferenca: int
     sem_chave_a: SemChave
     sem_chave_b: SemChave
+    # (Base, Linha, Chave, Data, Valor, Motivo) como a aba Erros mostra: a Base A e depois a B, na ordem do arquivo
+    rejeitadas: tuple[tuple[str, int, str | None, str | None, str | None, str], ...]
     data_bases_so_em_b: tuple[date, ...]
     historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
     # (Chave, A, B, Diferença, Tipo do Erro), por |Diferença| decrescente
@@ -149,12 +160,12 @@ def _escrever_csv(
         w.writerows([["" if campo is None else campo for campo in linha] for linha in linhas])
 
 
-def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple]) -> None:
+def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple], rejeitadas: list[tuple]) -> None:
     """`.xlsx` ou `.parquet` como o sistema exporta: Data como data, Valor como número em reais e Atributos em texto.
 
-    Cada linha é (Chave, Data, Valor em centavos, *Atributos).
+    Cada linha é (Chave, Data, Valor em centavos, *Atributos); as `rejeitadas` vão no fim, como estão.
     """
-    linhas = [(chave, data, valor / 100, *atributos) for chave, data, valor, *atributos in linhas]
+    linhas = [(chave, data, valor / 100, *atributos) for chave, data, valor, *atributos in linhas] + rejeitadas
     if caminho.suffix == ".parquet":
         colunas = list(zip(*linhas))
         pl.DataFrame({nome: list(coluna) for nome, coluna in zip(cabecalho, colunas)}).write_parquet(caminho)
@@ -316,19 +327,33 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         for data, valores in posicoes_b.items()
         for chave, valor in _linhas_da_base(valores, REPETIDAS_B, SEM_CHAVE_B)
     ]
+    rejeitadas_a = [] if formato == "parquet" else REJEITADAS_A
+    sem_atributos_a, sem_atributos_b = [None] * len(ATRIBUTOS_A), [None] * len(ATRIBUTOS_B)
     if formato == "csv":
         _escrever_csv(
-            base_a, CABECALHO_A, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
+            base_a,
+            CABECALHO_A,
+            [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
+            + [[c, d, v, *sem_atributos_a] for c, d, v, _ in rejeitadas_a],
         )
         _escrever_csv(
             base_b,
             CABECALHO_B,
-            [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b],
+            [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
+            + [[c, d.isoformat(), v, *sem_atributos_b] for c, d, v, _ in REJEITADAS_B],
             codificacao="cp1252",  # com os acentos do Produto (Crédito, Débito, Câmbio)
         )
     else:
-        _escrever_nativo(base_a, CABECALHO_A, linhas_a)
-        _escrever_nativo(base_b, CABECALHO_B, linhas_b)
+        _escrever_nativo(base_a, CABECALHO_A, linhas_a, [(c, d, v, *sem_atributos_a) for c, d, v, _ in rejeitadas_a])
+        _escrever_nativo(base_b, CABECALHO_B, linhas_b, [(c, d, v, *sem_atributos_b) for c, d, v, _ in REJEITADAS_B])
+    # A Linha é a que o usuário vê: o cabeçalho é a linha 1, menos no `.parquet`, que não tem cabeçalho
+    primeira_a = len(linhas_a) + (1 if formato == "parquet" else 2)
+    primeira_b = len(linhas_b) + (1 if formato == "parquet" else 2)
+    rejeitadas = [
+        (nome, primeira + i, chave and chave.strip(), data if data is None else str(data), valor, motivo)
+        for nome, primeira, plantadas in (("Base A", primeira_a, rejeitadas_a), ("Base B", primeira_b, REJEITADAS_B))
+        for i, (chave, data, valor, motivo) in enumerate(plantadas)
+    ]
     return Gabarito(
         base_a=base_a,
         base_b=base_b,
@@ -340,6 +365,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         chaves_com_diferenca=len(diferencas),
         sem_chave_a=_sem_chave(SEM_CHAVE_A),
         sem_chave_b=_sem_chave(SEM_CHAVE_B),
+        rejeitadas=tuple(rejeitadas),
         data_bases_so_em_b=(SO_NA_BASE_B,),
         historico=tuple(
             (data, sum(abs(d) for d in [*ds.values(), *DIFERENCAS_SEM_CHAVE])) for data, ds in plantadas.items()

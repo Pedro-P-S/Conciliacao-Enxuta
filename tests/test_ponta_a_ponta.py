@@ -13,7 +13,7 @@ from conciliacao_enxuta.leitura import ler_base
 
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
-ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença"]
+ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença", "Erros"]
 
 
 def ler_resumo(caminho) -> dict:
@@ -300,26 +300,44 @@ def test_varias_colunas_faltando_sao_todas_nomeadas(tmp_path, capsys):
     assert mensagem == "base_a.csv: faltam as colunas Data, Valor. Colunas encontradas: Chave, Conta."
 
 
-@pytest.mark.parametrize("texto", ["12,3,4", "abc", "99.999.999.999.999.999.999,00"])
-def test_valor_ilegivel_diz_o_arquivo_a_linha_e_o_conteudo(tmp_path, capsys, texto):
-    mensagem = conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;30/09/2026;10,00\n2;30/09/2026;{texto}\n")
-
-    assert mensagem == f"base_a.csv, linha 3: Valor ilegível: {texto!r}."
+CABECALHO_DE_ERROS = ["Base", "Linha", "Chave", "Data", "Valor", "Motivo"]
 
 
-@pytest.mark.parametrize("texto", ["31/02/2026", "ontem"])
-def test_data_ilegivel_diz_o_arquivo_a_linha_e_o_conteudo(tmp_path, capsys, texto):
-    mensagem = conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;{texto};10,00\n")
+def conciliar_com_linhas_rejeitadas(tmp_path, capsys, conteudo_a: str) -> str:
+    """Roda a CLI com a Base A dada e uma Base B boa; confere que deu certo e devolve o caminho do `.xlsx`."""
+    base_a, base_b = tmp_path / "base_a.csv", tmp_path / "base_b.csv"
+    base_a.write_text(conteudo_a, encoding="utf-8")
+    base_b.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n", encoding="utf-8")
 
-    assert mensagem == f"base_a.csv, linha 2: Data ilegível: {texto!r}."
+    assert main(["conciliar", str(base_a), str(base_b)]) == 0
+    return capsys.readouterr().out.strip()
 
 
 @pytest.mark.parametrize(
-    ("linha", "mensagem"),
-    [("2;30/09/2026;", "base_a.csv, linha 3: Valor vazio."), ("2;;10,00", "base_a.csv, linha 3: Data vazia.")],
+    ("linha", "data", "valor", "motivo"),
+    [
+        ("2;30/09/2026;12,3,4", "30/09/2026", "12,3,4", "Valor ilegível"),
+        ("2;30/09/2026;abc", "30/09/2026", "abc", "Valor ilegível"),
+        ("2;30/09/2026;99.999.999.999.999.999.999,00", "30/09/2026", "99.999.999.999.999.999.999,00", "Valor ilegível"),
+        ("2;31/02/2026;10,00", "31/02/2026", "10,00", "Data ilegível"),
+        ("2;ontem;10,00", "ontem", "10,00", "Data ilegível"),
+        ("2;30/09/2026;", "30/09/2026", None, "Valor vazio"),
+        ("2;;10,00", None, "10,00", "Data vazia"),
+    ],
 )
-def test_valor_ou_data_vazio_numa_linha_com_chave_diz_o_arquivo_e_a_linha(tmp_path, capsys, linha, mensagem):
-    assert conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;30/09/2026;10,00\n{linha}\n") == mensagem
+def test_linha_com_data_ou_valor_ruim_vai_para_a_aba_erros_e_a_conciliacao_segue(
+    tmp_path, capsys, linha, data, valor, motivo
+):
+    caminho = conciliar_com_linhas_rejeitadas(tmp_path, capsys, f"Chave;Data;Valor\n1;30/09/2026;10,00\n{linha}\n")
+
+    wb = openpyxl.load_workbook(caminho)
+    assert abas_visiveis(wb) == ABAS
+    ws = wb["Erros"]
+    assert list(ws.iter_rows(values_only=True)) == [tuple(CABECALHO_DE_ERROS), ("Base A", 3, "2", data, valor, motivo)]
+    assert ws.freeze_panes == "A2"
+    assert ws.auto_filter.ref == "A1:F2"
+    assert ler_resumo(caminho)["Total A"].value == 10.00
+    assert "Linhas rejeitadas: 1 (veja a aba Erros)" in avisos_do_resumo(caminho)
 
 
 def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_da_maior_para_a_menor(
@@ -530,7 +548,9 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
 
 def gravar_com_limite(base_a, base_b, pasta, limite):
     """Arquivos → Resultado → `.xlsx` com o limite de linhas reduzido, que a CLI não expõe."""
-    return gravar_excel(conciliar(ler_base(base_a), ler_base(base_b), TOLERANCIA_PADRAO), pasta, limite=limite)
+    (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(base_a), ler_base(base_b)
+    resultado = conciliar(lida_a, lida_b, TOLERANCIA_PADRAO, rejeitadas_a, rejeitadas_b)
+    return gravar_excel(resultado, pasta, limite=limite)
 
 
 def test_acima_do_limite_a_aba_mostra_as_maiores_com_o_aviso_na_linha_1(tmp_path):
@@ -611,3 +631,49 @@ def test_o_limite_e_o_total_saem_com_separador_de_milhar_brasileiro(tmp_path):
     assert ws["A1"].value == aviso
     assert ws.max_row == 1002
     assert avisos_do_resumo(caminho)[-1] == aviso
+
+
+def test_sem_linhas_rejeitadas_a_aba_erros_so_tem_o_cabecalho_e_o_resumo_nao_avisa(tmp_path, capsys):
+    caminho = conciliar_com_linhas_rejeitadas(tmp_path, capsys, "Chave;Data;Valor\n1;30/09/2026;10,00\n;;\n")
+
+    ws = openpyxl.load_workbook(caminho)["Erros"]
+    assert list(ws.iter_rows(values_only=True)) == [tuple(CABECALHO_DE_ERROS)]
+    assert ws.freeze_panes == "A2"
+    assert not any(aviso.startswith("Linhas rejeitadas") for aviso in avisos_do_resumo(caminho))
+
+
+def test_acima_do_limite_a_aba_erros_mostra_os_primeiros_com_o_aviso_na_linha_1(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n2;;1\n3;ontem;1\n", encoding="utf-8")
+    base_b.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n4;30/09/2026;\n", encoding="utf-8")
+
+    caminho = gravar_com_limite(base_a, base_b, tmp_path, limite=2)
+
+    ws = openpyxl.load_workbook(caminho)["Erros"]
+    assert list(ws.iter_rows(values_only=True)) == [
+        ("Nem todos os erros couberam: mostrando 2 de 3.", None, None, None, None, None),
+        tuple(CABECALHO_DE_ERROS),
+        ("Base A", 3, "2", None, "1", "Data vazia"),
+        ("Base A", 4, "3", "ontem", "1", "Data ilegível"),
+    ]
+    assert ws.freeze_panes == "A3"
+    assert ws.auto_filter.ref == "A2:F4"
+    # O aviso do Resumo conta as rejeitadas das duas bases, mesmo as que não couberam na aba
+    assert "Linhas rejeitadas: 3 (veja a aba Erros)" in avisos_do_resumo(caminho)
+
+
+@pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
+def test_a_aba_erros_lista_as_linhas_rejeitadas_plantadas_e_o_resumo_avisa_quantas_sao(tmp_path, capsys, formato):
+    gabarito = gerar_bases_exemplo(tmp_path, formato)
+    motivos = {motivo for *_, motivo in gabarito.rejeitadas}
+    if formato != "parquet":  # o .parquet tem tipos nativos: não guarda Data nem Valor ilegível
+        assert motivos == {"Data vazia", "Data ilegível", "Valor vazio", "Valor ilegível"}
+    assert {base for base, *_ in gabarito.rejeitadas} == ({"Base B"} if formato == "parquet" else {"Base A", "Base B"})
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    linhas = list(openpyxl.load_workbook(caminho)["Erros"].iter_rows(values_only=True))
+    assert linhas == [tuple(CABECALHO_DE_ERROS), *gabarito.rejeitadas]
+    assert f"Linhas rejeitadas: {len(gabarito.rejeitadas)} (veja a aba Erros)" in avisos_do_resumo(caminho)
+    conferir_quadro_do_resumo(caminho, gabarito)

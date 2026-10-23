@@ -80,7 +80,10 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
             ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
         linha += 2
 
-    avisos = [
+    avisos = []
+    if resultado.rejeitadas.height:
+        avisos.append(f"Linhas rejeitadas: {_milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
+    avisos += [
         f"Data-bases ignoradas por estarem só na {nome}: {', '.join(f'{d:%d/%m/%Y}' for d in datas)}."
         for nome, datas in (("Base A", resultado.data_bases_so_em_a), ("Base B", resultado.data_bases_so_em_b))
         if datas
@@ -99,6 +102,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     _aba_por_tipo(wb, resultado)
     _aba_por_atributo(wb, resultado)
     _aba_operacoes(wb, resultado, limite, aviso_de_corte)
+    _aba_erros(wb, resultado, limite)
     _grafico_da_diferenca(wb, ws, resultado)
 
     wb.save(caminho)
@@ -199,3 +203,28 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
         ws.column_dimensions[letra].width = 18
     ws.column_dimensions["E"].width = 24
     ws.column_dimensions["F"].width = 22
+
+
+def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None:
+    """As Linhas rejeitadas da Base A e depois da Base B, na ordem do arquivo; cabeçalho congelado e com filtro.
+
+    Existe sempre: sem erros, fica só o cabeçalho. Mostra só os `limite` primeiros; quando há corte, o aviso vai
+    na linha 1 e o cabeçalho passa para a linha 2.
+    """
+    ws = wb.create_sheet("Erros")
+    erros = resultado.rejeitadas
+    linha_do_cabecalho = 1
+    if erros.height > limite:
+        aviso = f"Nem todos os erros couberam: mostrando {_milhar(limite)} de {_milhar(erros.height)}."
+        ws.cell(1, 1, aviso).font = Font(bold=True)
+        linha_do_cabecalho = 2
+        erros = erros.head(limite)
+    for coluna, titulo in enumerate(erros.columns, start=1):
+        ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
+    for linha, valores in enumerate(erros.iter_rows(), start=linha_do_cabecalho + 1):
+        for coluna, valor in enumerate(valores, start=1):
+            ws.cell(linha, coluna, valor)
+    ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
+    ws.auto_filter.ref = f"A{linha_do_cabecalho}:F{linha_do_cabecalho + erros.height}"
+    for letra, largura in zip("ABCDEF", (10, 10, 24, 14, 18, 18)):
+        ws.column_dimensions[letra].width = largura

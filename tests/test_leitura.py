@@ -17,7 +17,7 @@ def test_valor_vira_centavos_exatos_mesmo_em_valores_grandes(tmp_path):
         encoding="utf-8",
     )
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base["Chave"].to_list() == ["1", "2", "3"]
     assert base["Valor"].to_list() == [29, -123_456, 9_223_372_036_854_775]
@@ -27,7 +27,7 @@ def test_nomes_de_coluna_sem_diferenciar_maiuscula_acento_e_espaco_nas_pontas(tm
     caminho = tmp_path / "base.csv"
     caminho.write_text(" CHAVE ,Dáta,valor \n1,2026-09-30,10\n", encoding="utf-8-sig")  # com BOM, como o Excel salva
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base.columns == ["Chave", "Data", "Valor"]
     assert base["Valor"].to_list() == [1000]
@@ -38,7 +38,7 @@ def test_csv_em_cp1252_com_acento_e_lido(tmp_path):
     caminho = tmp_path / "base.csv"
     caminho.write_text("Chave;Dáta;Valor;Descrição\n1;30/09/2026;10,00;Crédito à vista\n", encoding="cp1252")
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base.columns == ["Chave", "Data", "Valor", "Descrição"]
     assert base["Descrição"].to_list() == ["Crédito à vista"]
@@ -75,7 +75,7 @@ def test_valor_no_formato_brasileiro_vira_centavos_exatos(tmp_path, texto, centa
     caminho = tmp_path / "base.csv"
     caminho.write_text(f"Chave;Data;Valor\n1;2026-09-30;{texto}\n", encoding="utf-8")
 
-    assert ler_base(caminho)["Valor"].to_list() == [centavos]
+    assert ler_base(caminho)[0]["Valor"].to_list() == [centavos]
 
 
 @pytest.mark.parametrize("texto", ["31/01/2026", "2026-01-31", "46053", " 31/01/2026 "])
@@ -83,7 +83,7 @@ def test_data_em_dd_mm_aaaa_aaaa_mm_dd_ou_data_do_excel(tmp_path, texto):
     caminho = tmp_path / "base.csv"
     caminho.write_text(f"Chave;Data;Valor\n1;{texto};10\n", encoding="utf-8")
 
-    assert ler_base(caminho)["Data"].to_list() == [date(2026, 1, 31)]
+    assert ler_base(caminho)[0]["Data"].to_list() == [date(2026, 1, 31)]
 
 
 def test_chave_com_espaco_nas_pontas_em_a_cruza_com_a_mesma_chave_em_b(tmp_path):
@@ -91,7 +91,7 @@ def test_chave_com_espaco_nas_pontas_em_a_cruza_com_a_mesma_chave_em_b(tmp_path)
     base_a.write_text("Chave;Data;Valor\n 0123 ;30/09/2026;10,00\n", encoding="utf-8")
     base_b.write_text("Chave;Data;Valor\n0123;30/09/2026;10,00\n", encoding="utf-8")
 
-    resultado = conciliar(ler_base(base_a), ler_base(base_b), TOLERANCIA_PADRAO)
+    resultado = conciliar(ler_base(base_a)[0], ler_base(base_b)[0], TOLERANCIA_PADRAO)
 
     assert resultado.chaves_com_diferenca == 0
 
@@ -101,8 +101,10 @@ def test_data_ilegivel_nao_some_em_silencio(tmp_path, texto):
     caminho = tmp_path / "base.csv"
     caminho.write_text(f"Chave;Data;Valor\n1;{texto};10\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match=texto):
-        ler_base(caminho)
+    base, rejeitadas = ler_base(caminho)
+
+    assert base.height == 0
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", texto, "10", "Data ilegível")]
 
 
 def test_xlsx_com_valor_numerico_data_do_excel_e_chave_numerica(tmp_path):
@@ -115,7 +117,7 @@ def test_xlsx_com_valor_numerico_data_do_excel_e_chave_numerica(tmp_path):
     ws.append([456, date(2026, 9, 30), 10])
     wb.save(caminho)
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base["Chave"].to_list() == ["123", "C1", "456"]
     assert base["Data"].to_list() == [date(2026, 9, 30)] * 3
@@ -128,7 +130,7 @@ def test_parquet_com_tipos_nativos(tmp_path):
         {"CHAVE": [7, 8], "data": [date(2026, 9, 30), date(2026, 9, 30)], "Valor": [0.29, -1234.56]}
     ).write_parquet(caminho)
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base["Chave"].to_list() == ["7", "8"]
     assert base["Data"].to_list() == [date(2026, 9, 30)] * 2
@@ -145,7 +147,7 @@ def test_xlsx_com_tipos_misturados_na_coluna_nao_perde_linha_nem_valor(tmp_path)
     ws.append(["X1", "30/09/2026", "R$ 1.234,56"])
     wb.save(caminho)
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base.height == 151
     assert base["Chave"].to_list()[-2:] == ["149", "X1"]
@@ -153,7 +155,7 @@ def test_xlsx_com_tipos_misturados_na_coluna_nao_perde_linha_nem_valor(tmp_path)
     assert base["Valor"].unique().to_list() == [123_456]
 
 
-def test_erros_de_leitura_valem_tambem_para_xlsx_e_parquet(tmp_path):
+def test_erros_e_linhas_rejeitadas_valem_tambem_para_xlsx_e_parquet(tmp_path):
     xlsx = tmp_path / "base_a.xlsx"
     wb = openpyxl.Workbook()
     wb.active.append(["Chave", "Data", "Vlr"])
@@ -168,13 +170,11 @@ def test_erros_de_leitura_valem_tambem_para_xlsx_e_parquet(tmp_path):
     wb.active.append([1, "30/09/2026", 10])
     wb.active.append([2, "30/09/2026", "abc"])
     wb.save(xlsx_ilegivel)
-    with pytest.raises(ErroDeLeitura, match=r"^base_c\.xlsx, linha 3: Valor ilegível: 'abc'\.$"):
-        ler_base(xlsx_ilegivel)
+    assert rejeitadas_em_tuplas(ler_base(xlsx_ilegivel)[1]) == [(3, "2", "30/09/2026", "abc", "Valor ilegível")]
 
     parquet = tmp_path / "base_b.parquet"
     pl.DataFrame({"Chave": ["1", "2"], "Data": [date(2026, 9, 30), None], "Valor": [1.0, 2.0]}).write_parquet(parquet)
-    with pytest.raises(ErroDeLeitura, match=r"^base_b\.parquet, linha 2: Data vazia\.$"):
-        ler_base(parquet)
+    assert rejeitadas_em_tuplas(ler_base(parquet)[1]) == [(2, "2", None, "2.0", "Data vazia")]
 
 
 def test_colunas_extras_viram_atributos_em_texto_com_o_nome_original(tmp_path):
@@ -186,7 +186,7 @@ def test_colunas_extras_viram_atributos_em_texto_com_o_nome_original(tmp_path):
         encoding="utf-8-sig",
     )
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base.columns == ["Chave", "Data", "Valor", "Produto", "Região", "filial"]
     assert base["Produto"].to_list() == ["Crédito", None]
@@ -203,8 +203,81 @@ def test_atributo_numerico_ou_data_no_xlsx_vira_texto(tmp_path):
     ws.append(["2", date(2026, 9, 30), 20, 102, "1.1.01"])
     wb.save(caminho)
 
-    base = ler_base(caminho)
+    base, _ = ler_base(caminho)
 
     assert base.schema["Filial"] == base.schema["Conta"] == pl.String
     assert base["Filial"].to_list() == ["101", "102"]
     assert base["Conta"].to_list() == [None, "1.1.01"]
+
+
+def rejeitadas_em_tuplas(rejeitadas: pl.DataFrame) -> list[tuple]:
+    return list(rejeitadas.select("Linha", "Chave", "Data", "Valor", "Motivo").iter_rows())
+
+
+def test_data_ou_valor_vazio_ou_ilegivel_vira_linha_rejeitada_e_a_leitura_segue(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(
+        "Chave;Data;Valor\n"
+        "1;30/09/2026;10,00\n"
+        "2;;20,00\n"
+        "3;31/02/2026;30,00\n"
+        "4;30/09/2026;\n"
+        "5;30/09/2026;abc\n"
+        "6;30/09/2026;60,00\n",
+        encoding="utf-8",
+    )
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Chave"].to_list() == ["1", "6"]
+    assert rejeitadas_em_tuplas(rejeitadas) == [
+        (3, "2", None, "20,00", "Data vazia"),
+        (4, "3", "31/02/2026", "30,00", "Data ilegível"),
+        (5, "4", "30/09/2026", None, "Valor vazio"),
+        (6, "5", "30/09/2026", "abc", "Valor ilegível"),
+    ]
+
+
+def test_linha_sem_chave_com_data_ou_valor_ruim_e_rejeitada_e_nao_vira_linha_sem_chave(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(
+        "Chave;Data;Valor\n1;30/09/2026;10,00\n;ontem;20,00\n  ;30/09/2026;\n;30/09/2026;40,00\n", encoding="utf-8"
+    )
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base.select("Chave", "Valor").rows() == [("1", 1000), (None, 4000)]
+    assert rejeitadas_em_tuplas(rejeitadas) == [
+        (3, None, "ontem", "20,00", "Data ilegível"),
+        (4, None, "30/09/2026", None, "Valor vazio"),
+    ]
+
+
+def test_linha_toda_vazia_e_ignorada_sem_virar_rejeitada(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text("Chave;Data;Valor;Produto\n1;30/09/2026;10,00;X\n;;;\n  ; ;;Y\n2;;20,00;Z\n", encoding="utf-8")
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Chave"].to_list() == ["1"]
+    assert rejeitadas_em_tuplas(rejeitadas) == [(5, "2", None, "20,00", "Data vazia")]
+
+
+def test_a_linha_rejeitada_e_a_que_o_usuario_ve_no_xlsx_e_no_parquet(tmp_path):
+    xlsx = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Chave", "Data", "Valor"])  # linha 1
+    ws.append([1, date(2026, 9, 30), 10])
+    ws.append([None, None, None])  # linha toda vazia, ignorada, mas conta na numeração
+    ws.append([3, "ontem", "abc"])  # linha 4
+    wb.save(xlsx)
+    _, rejeitadas = ler_base(xlsx)
+    assert rejeitadas_em_tuplas(rejeitadas) == [(4, "3", "ontem", "abc", "Data ilegível")]
+
+    parquet = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"Chave": ["1", "2"], "Data": [date(2026, 9, 30), date(2026, 9, 30)], "Valor": [1.0, None]}
+    ).write_parquet(parquet)
+    _, rejeitadas = ler_base(parquet)
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "2", "2026-09-30", None, "Valor vazio")]

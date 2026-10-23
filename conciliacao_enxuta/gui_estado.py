@@ -46,7 +46,8 @@ def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta
     except ArgumentTypeError as erro:
         return Resposta(mensagem=str(erro))
     try:
-        resultado = conciliar(ler_base(Path(base_a)), ler_base(Path(base_b)), centavos)
+        (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(Path(base_a)), ler_base(Path(base_b))
+        resultado = conciliar(lida_a, lida_b, centavos, rejeitadas_a, rejeitadas_b)
         return Resposta(caminho=gravar_excel(resultado, Path(base_a).parent))
     except (ErroDeLeitura, SemDataBaseComum) as erro:
         return Resposta(mensagem=str(erro))

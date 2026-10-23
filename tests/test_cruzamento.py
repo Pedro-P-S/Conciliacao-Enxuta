@@ -674,3 +674,37 @@ def test_invariante_vale_com_as_linhas_sem_chave():
     dentro_da_tolerancia = 50 + 60 + 90  # Chave 1 e as duas linhas sem Chave pequenas (+60 em A, −(−90) em B)
     assert r.diferenca_total == -10_000 + 30_000 - 4_000
     assert r.total_a - r.total_b == r.diferenca_total + dentro_da_tolerancia
+
+
+def rejeitadas(linhas: list[tuple[int, str | None, str | None, str | None, str]]) -> pl.DataFrame:
+    """Linhas rejeitadas como a leitura devolve: Linha, Chave, Data, Valor (como vieram) e Motivo."""
+    return pl.DataFrame(
+        linhas,
+        schema={"Linha": pl.Int64, "Chave": pl.String, "Data": pl.String, "Valor": pl.String, "Motivo": pl.String},
+        orient="row",
+    )
+
+
+def test_linhas_rejeitadas_ficam_fora_dos_totais_e_das_linhas_sem_chave_e_voltam_com_a_base():
+    a = base([("1", 10_000), (None, 500)])
+    b = base([("1", 10_000)])
+    rejeitadas_a = rejeitadas([(3, None, "ontem", "20,00", "Data ilegível"), (4, "1", "30/09/2026", None, "Valor vazio")])
+    rejeitadas_b = rejeitadas([(2, "2", None, "5,00", "Data vazia")])
+
+    r = conciliar(a, b, 100, rejeitadas_a, rejeitadas_b)
+
+    assert (r.total_a, r.total_b) == (10_500, 10_000)
+    assert r.sem_chave_a == SemChave(linhas=1, soma=500)
+    assert list(r.rejeitadas.iter_rows()) == [
+        ("Base A", 3, None, "ontem", "20,00", "Data ilegível"),
+        ("Base A", 4, "1", "30/09/2026", None, "Valor vazio"),
+        ("Base B", 2, "2", None, "5,00", "Data vazia"),
+    ]
+    assert r.rejeitadas.columns == ["Base", "Linha", "Chave", "Data", "Valor", "Motivo"]
+
+
+def test_sem_linhas_rejeitadas_o_resultado_traz_a_lista_vazia():
+    r = conciliar(base([("1", 10_000)]), base([("1", 10_000)]), tolerancia=100)
+
+    assert r.rejeitadas.height == 0
+    assert r.rejeitadas.columns == ["Base", "Linha", "Chave", "Data", "Valor", "Motivo"]
