@@ -57,7 +57,7 @@ O Tipo do Erro de uma Chave cuja Diferença seria zerada por uma Linha sem Chave
 A Data-base em que a Diferença de uma Chave apareceu e, desde então, não sumiu mais. Se ela some e volta, vale a data da volta; se só muda de valor, a data não muda.
 
 **Idade da Diferença**:
-Dias corridos entre o Aberta desde e a Data-base mais recente. Agrupada em faixas: até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos, mais de 5 anos.
+Dias corridos entre o Aberta desde e a Data-base mais recente. Uma Linha sem Chave conta desde a primeira Data-base em que o mesmo valor aparece, sem sumir, na sua base. Agrupada em faixas: até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos, mais de 5 anos.
 
 **Histórico da Diferença**:
 A Diferença absoluta em cada Data-base, do início ao fim do período.
