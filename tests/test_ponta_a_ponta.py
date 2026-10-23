@@ -237,3 +237,53 @@ def test_extensao_nao_suportada_da_mensagem_simples_com_o_nome_do_arquivo(tmp_pa
     assert saida.err.strip() == "base_b.txt: formato não suportado. Use .csv, .xlsx ou .parquet."
     assert "Traceback" not in saida.err
     assert not list(tmp_path.glob("*.xlsx"))
+
+
+def conciliar_com_erro(tmp_path, capsys, conteudo_a: str) -> str:
+    """Roda a CLI com a Base A dada e uma Base B boa; confere o código e que nada foi gerado; devolve a mensagem."""
+    base_a, base_b = tmp_path / "base_a.csv", tmp_path / "base_b.csv"
+    base_a.write_text(conteudo_a, encoding="utf-8")
+    base_b.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n", encoding="utf-8")
+
+    codigo = main(["conciliar", str(base_a), str(base_b)])
+
+    saida = capsys.readouterr()
+    assert codigo != 0
+    assert saida.out == ""
+    assert "Traceback" not in saida.err
+    assert not list(tmp_path.glob("*.xlsx"))
+    return saida.err.strip()
+
+
+def test_falta_de_coluna_diz_qual_falta_em_qual_arquivo_e_as_colunas_encontradas(tmp_path, capsys):
+    mensagem = conciliar_com_erro(tmp_path, capsys, "\ufeff CHAVE ;data;Vlr\n1;30/09/2026;10,00\n")
+
+    assert mensagem == "base_a.csv: falta a coluna Valor. Colunas encontradas: CHAVE, data, Vlr."
+
+
+def test_varias_colunas_faltando_sao_todas_nomeadas(tmp_path, capsys):
+    mensagem = conciliar_com_erro(tmp_path, capsys, "Chave;Conta\n1;X\n")
+
+    assert mensagem == "base_a.csv: faltam as colunas Data, Valor. Colunas encontradas: Chave, Conta."
+
+
+@pytest.mark.parametrize("texto", ["12,3,4", "abc", "99.999.999.999.999.999.999,00"])
+def test_valor_ilegivel_diz_o_arquivo_a_linha_e_o_conteudo(tmp_path, capsys, texto):
+    mensagem = conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;30/09/2026;10,00\n2;30/09/2026;{texto}\n")
+
+    assert mensagem == f"base_a.csv, linha 3: Valor ilegível: {texto!r}."
+
+
+@pytest.mark.parametrize("texto", ["31/02/2026", "ontem"])
+def test_data_ilegivel_diz_o_arquivo_a_linha_e_o_conteudo(tmp_path, capsys, texto):
+    mensagem = conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;{texto};10,00\n")
+
+    assert mensagem == f"base_a.csv, linha 2: Data ilegível: {texto!r}."
+
+
+@pytest.mark.parametrize(
+    ("linha", "mensagem"),
+    [("2;30/09/2026;", "base_a.csv, linha 3: Valor vazio."), ("2;;10,00", "base_a.csv, linha 3: Data vazia.")],
+)
+def test_valor_ou_data_vazio_numa_linha_com_chave_diz_o_arquivo_e_a_linha(tmp_path, capsys, linha, mensagem):
+    assert conciliar_com_erro(tmp_path, capsys, f"Chave;Data;Valor\n1;30/09/2026;10,00\n{linha}\n") == mensagem

@@ -14,7 +14,11 @@ import polars as pl
 COLUNAS = ("Chave", "Data", "Valor")
 
 
-class FormatoNaoSuportado(ValueError):
+class ErroDeLeitura(ValueError):
+    """Um arquivo que não serve, com a explicação em linguagem simples."""
+
+
+class FormatoNaoSuportado(ErroDeLeitura):
     """A base não é `.csv`, `.xlsx` nem `.parquet`."""
 
 
@@ -44,8 +48,8 @@ def _centavos(texto: pl.Expr) -> pl.Expr:
     numero = pl.when(ponto_e_milhar).then(
         numero.str.replace_all(r"\.", "").str.replace(",", ".")
     ).otherwise(numero)
-    # Decimal, e não float, para os centavos saírem exatos
-    absoluto = (numero.cast(pl.Decimal(38, 2)) * 100).cast(pl.Int64)
+    # Decimal, e não float, para os centavos saírem exatos; o que não vira número (ou não cabe) fica nulo
+    absoluto = (numero.cast(pl.Decimal(38, 2), strict=False) * 100).cast(pl.Int64, strict=False)
     return pl.when(negativo).then(-absoluto).otherwise(absoluto)
 
 
@@ -116,14 +120,28 @@ def ler_base(caminho: str | Path) -> pl.DataFrame:
     brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
     """
     caminho = Path(caminho)
-    df = _renomear_colunas(_ler_tabela(caminho))
+    arquivo = caminho.name
+    lido = _ler_tabela(caminho)
+    df = _renomear_colunas(lido)
+    faltam = [c for c in COLUNAS if c not in df.columns]
+    if faltam:
+        encontradas = ", ".join(c.lstrip("﻿").strip() for c in lido.columns)
+        falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
+        raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
     base = df.select(
         _chave_em_texto(df.schema["Chave"]).str.strip_chars(),
         _data_de(df.schema["Data"]),
         _centavos_de(df.schema["Valor"]),
     )
-    # Uma Data que não pôde ser lida não pode sumir do cruzamento sem aviso
-    ilegiveis = df["Data"].filter(base["Data"].is_null() & df["Data"].is_not_null())
-    if len(ilegiveis):
-        raise ValueError(f"{caminho.name}: Data ilegível: {ilegiveis[0]!r}")
+    # Um Valor ou uma Data que não pôde ser lido não pode sumir do cruzamento sem aviso.
+    # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; o `.parquet` não tem cabeçalho.
+    primeira_linha = 1 if caminho.suffix.lower() == ".parquet" else 2
+    tem_chave = base["Chave"].fill_null("") != ""
+    for coluna, mensagem_se_vazio in (("Valor", "Valor vazio"), ("Data", "Data vazia")):
+        linhas_ruins = (base[coluna].is_null() & (df[coluna].is_not_null() | tem_chave)).arg_true()
+        if len(linhas_ruins):
+            i = linhas_ruins[0]
+            texto = df[coluna][i]
+            erro = mensagem_se_vazio if texto is None else f"{coluna} ilegível: {texto!r}"
+            raise ErroDeLeitura(f"{arquivo}, linha {i + primeira_linha}: {erro}.")
     return base

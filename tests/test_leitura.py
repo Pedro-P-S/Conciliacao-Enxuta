@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
-from conciliacao_enxuta.leitura import ler_base
+from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
 
 
 def test_valor_vira_centavos_exatos_mesmo_em_valores_grandes(tmp_path):
@@ -131,3 +131,27 @@ def test_xlsx_com_tipos_misturados_na_coluna_nao_perde_linha_nem_valor(tmp_path)
     assert base["Chave"].to_list()[-2:] == ["149", "X1"]
     assert base["Data"].unique().to_list() == [date(2026, 9, 30)]
     assert base["Valor"].unique().to_list() == [123_456]
+
+
+def test_erros_de_leitura_valem_tambem_para_xlsx_e_parquet(tmp_path):
+    xlsx = tmp_path / "base_a.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Vlr"])
+    wb.active.append([1, date(2026, 9, 30), 10])
+    wb.save(xlsx)
+    with pytest.raises(ErroDeLeitura, match=r"^base_a\.xlsx: falta a coluna Valor\. Colunas encontradas: Chave, Data, Vlr\.$"):
+        ler_base(xlsx)
+
+    xlsx_ilegivel = tmp_path / "base_c.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor"])
+    wb.active.append([1, "30/09/2026", 10])
+    wb.active.append([2, "30/09/2026", "abc"])
+    wb.save(xlsx_ilegivel)
+    with pytest.raises(ErroDeLeitura, match=r"^base_c\.xlsx, linha 3: Valor ilegível: 'abc'\.$"):
+        ler_base(xlsx_ilegivel)
+
+    parquet = tmp_path / "base_b.parquet"
+    pl.DataFrame({"Chave": ["1", "2"], "Data": [date(2026, 9, 30), None], "Valor": [1.0, 2.0]}).write_parquet(parquet)
+    with pytest.raises(ErroDeLeitura, match=r"^base_b\.parquet, linha 2: Data vazia\.$"):
+        ler_base(parquet)
