@@ -374,3 +374,35 @@ def test_atributo_de_tipo_incomum_no_parquet_vira_texto_e_nao_para_a_leitura(tmp
     assert base["Prazo"].to_list()[1] is None
     assert "3" in base["Prazo"].to_list()[0]
     assert rejeitadas.height == 0
+
+
+def test_valor_numerico_nan_infinito_ou_grande_demais_no_parquet_vira_linha_rejeitada(tmp_path):
+    caminho = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"Chave": ["1", "2", "3", "4"], "Data": [date(2026, 9, 30)] * 4, "Valor": [1.5, float("nan"), float("inf"), 1e30]}
+    ).write_parquet(caminho)
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Valor"].to_list() == [150]
+    assert [(linha, chave, motivo) for linha, chave, _, _, motivo in rejeitadas_em_tuplas(rejeitadas)] == [
+        (2, "2", "Valor ilegível"),
+        (3, "3", "Valor ilegível"),
+        (4, "4", "Valor ilegível"),
+    ]
+
+
+def test_valor_numerico_grande_demais_no_xlsx_vira_linha_rejeitada(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor"])
+    wb.active.append([1, date(2026, 9, 30), 1.5])
+    wb.active.append([2, date(2026, 9, 30), 1e30])
+    wb.save(caminho)
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Valor"].to_list() == [150]
+    assert [(linha, chave, motivo) for linha, chave, _, _, motivo in rejeitadas_em_tuplas(rejeitadas)] == [
+        (3, "2", "Valor ilegível"),
+    ]

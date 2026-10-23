@@ -138,7 +138,9 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
         return pl.col("Valor").cast(pl.Int64) * 100
     if tipo.is_numeric():
         # Primeiro tira o ruído do float (1.005 * 100 = 100.4999...), depois arredonda o meio para longe do zero
-        return (pl.col("Valor") * 100).round(6).round(0, mode="half_away_from_zero").cast(pl.Int64)
+        # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Valor ilegível`
+        centavos = (pl.col("Valor") * 100).round(6).round(0, mode="half_away_from_zero")
+        return pl.when(pl.col("Valor").is_finite()).then(centavos).cast(pl.Int64, strict=False)
     return _centavos(pl.col("Valor"))
 
 
