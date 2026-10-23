@@ -31,7 +31,7 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
 
     esperado = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert codigo == 0
-    assert capsys.readouterr().out.strip() == str(esperado)
+    assert capsys.readouterr().out.splitlines()[0] == str(esperado)
     assert abas_visiveis(openpyxl.load_workbook(esperado)) == ABAS
 
     conferir_quadro_do_resumo(esperado, gabarito)
@@ -61,7 +61,7 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
     assert wb["_grafico"].sheet_state == "hidden"
     assert abas_visiveis(wb) == ABAS
     linhas = list(wb["_grafico"].iter_rows(max_col=2, values_only=True))
@@ -85,7 +85,7 @@ def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
     # As 5 faixas sempre, mesmo vazias, com as Chaves no rótulo; "1 Chave" no singular. As 3 linhas sem Chave, que
     # se repetem desde a primeira Data-base, caem em 91 a 365 dias e entram no rótulo dela.
     barras = list(wb["_grafico"].iter_rows(min_col=4, max_col=5, max_row=6, values_only=True))
@@ -115,7 +115,7 @@ def test_rotulo_da_faixa_traz_1_linha_sem_chave_no_singular_e_nao_muda_sem_elas(
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    wb = openpyxl.load_workbook(capsys.readouterr().out.strip().splitlines()[0])
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
     barras = list(wb["_grafico"].iter_rows(min_row=2, min_col=4, max_col=5, max_row=3, values_only=True))
     assert barras == [("Até 30 dias (1 Chave, 1 linha sem Chave)", 15.00), ("31 a 90 dias (0 Chaves)", 0)]
 
@@ -139,7 +139,7 @@ def test_varias_data_bases_o_resumo_usa_a_maior_comum_e_a_que_esta_so_na_base_b_
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     assert caminho.endswith("conciliacao_2026-09-30.xlsx")
     assert ler_resumo(caminho)["Total B"].value == gabarito.total_b / 100
     assert linhas_de_erros(caminho)[1] == DATA_BASE_SO_NA_B
@@ -156,7 +156,7 @@ def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(t
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     assert linhas_de_erros(caminho) == [
         tuple(CABECALHO_DE_ERROS),
         ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
@@ -169,7 +169,7 @@ def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(t
 
     main(["conciliar", str(base_b), str(base_b)])
 
-    assert linhas_de_erros(capsys.readouterr().out.strip()) == [tuple(CABECALHO_DE_ERROS)]
+    assert linhas_de_erros(capsys.readouterr().out.splitlines()[0]) == [tuple(CABECALHO_DE_ERROS)]
 
 
 @pytest.mark.parametrize(("texto", "centavos"), [("0,50", 50), ("1,00", 100), ("2,5", 250), ("10", 1000)])
@@ -178,7 +178,7 @@ def test_tolerancia_no_formato_brasileiro(tmp_path, capsys, texto, centavos):
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b), "--tolerancia", texto])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     assert ler_resumo(caminho)["Tolerância"].value == centavos / 100
 
 
@@ -188,10 +188,13 @@ def test_saida_em_outra_pasta_sobrescreve_o_arquivo_existente(tmp_path, capsys):
     saida.mkdir()
     esperado = saida / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     esperado.write_text("arquivo antigo")
+    html = esperado.with_suffix(".html")
+    html.write_text("arquivo antigo")
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b), "--saida", str(saida)])
 
-    assert capsys.readouterr().out.strip() == str(esperado)
+    assert capsys.readouterr().out.splitlines() == [str(esperado), str(html)]
+    assert "arquivo antigo" not in html.read_text(encoding="utf-8")
     assert ler_resumo(esperado)["Chaves com Diferença"].value == gabarito.chaves_com_diferenca
 
 
@@ -229,7 +232,7 @@ def test_resumo_avisa_as_linhas_sem_chave_de_cada_base_e_os_totais_somam_as_chav
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     assert ler_aviso_sem_chave(caminho) == {
         "Base A": (gabarito.sem_chave_a.linhas, gabarito.sem_chave_a.soma / 100, FORMATO_REAIS),
         "Base B": (gabarito.sem_chave_b.linhas, gabarito.sem_chave_b.soma / 100, FORMATO_REAIS),
@@ -249,7 +252,7 @@ def test_sem_linhas_sem_chave_o_resumo_nao_tem_aviso(tmp_path, capsys):
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     assert ler_aviso_sem_chave(caminho) is None
     assert ler_resumo(caminho)["Chaves com Diferença"].value == 0
 
@@ -285,7 +288,7 @@ def test_bases_em_csv_xlsx_ou_parquet_dao_o_resumo_do_gabarito(tmp_path, capsys,
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     conferir_quadro_do_resumo(caminho, gabarito)
     assert ler_aviso_sem_chave(caminho) == {
         "Base A": (gabarito.sem_chave_a.linhas, gabarito.sem_chave_a.soma / 100, FORMATO_REAIS),
@@ -306,7 +309,7 @@ def test_base_a_em_xlsx_e_base_b_em_parquet_dao_o_mesmo_resumo_que_em_csv(tmp_pa
     main(["conciliar", str(em_csv.base_a), str(em_csv.base_b)])
     main(["conciliar", str(em_xlsx.base_a), str(em_parquet.base_b)])
 
-    caminho_csv, caminho_misturado = capsys.readouterr().out.split()
+    caminho_csv, _, caminho_misturado, _ = capsys.readouterr().out.splitlines()
     assert valores_do_resumo(caminho_misturado) == valores_do_resumo(caminho_csv)
 
 
@@ -363,7 +366,7 @@ def conciliar_com_linhas_rejeitadas(tmp_path, capsys, conteudo_a: str) -> str:
     base_b.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n", encoding="utf-8")
 
     assert main(["conciliar", str(base_a), str(base_b)]) == 0
-    return capsys.readouterr().out.strip()
+    return capsys.readouterr().out.splitlines()[0]
 
 
 @pytest.mark.parametrize(
@@ -400,7 +403,7 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     linhas = list(ws.iter_rows())
     assert [c.value for c in linhas[0]] == [
         "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Linha sem Chave",
@@ -433,7 +436,7 @@ def test_aba_por_tipo_do_erro_soma_as_chaves_e_a_diferenca_absoluta_de_cada_tipo
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Tipo do Erro"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Por Tipo do Erro"]
     linhas = [linha for linha in ws.iter_rows() if any(c.value is not None for c in linha)]
     assert [c.value for c in linhas[0]] == ["Tipo do Erro", "Chaves", "Diferença absoluta"]
     tabela = linhas[1:-1]
@@ -454,7 +457,7 @@ def test_sem_chaves_com_diferenca_a_aba_por_tipo_do_erro_so_tem_o_cabecalho_e_a_
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Tipo do Erro"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Por Tipo do Erro"]
     valores = [[c.value for c in linha if c.value is not None] for linha in ws.iter_rows()]
     assert [v for v in valores if v] == [["Tipo do Erro", "Chaves", "Diferença absoluta"], [NOTA_POR_TIPO]]
 
@@ -472,7 +475,7 @@ def test_aberta_desde_mostra_a_ultima_abertura_e_ou_antes_quando_vem_da_primeira
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     mostrado = {linha[0].value: aberta_desde_mostrado(linha[5]) for linha in ws.iter_rows(min_row=2)}
     assert mostrado == {
         chave: f"{desde:%d/%m/%Y}" + (" ou antes" if desde == primeira else "")
@@ -500,7 +503,7 @@ def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    avisos = avisos_do_resumo(capsys.readouterr().out.strip())
+    avisos = avisos_do_resumo(capsys.readouterr().out.splitlines()[0])
     assert not any("ou antes" in aviso for aviso in avisos)
     assert avisos[0] == AVISO_SEM_CHAVE
 
@@ -518,7 +521,7 @@ def test_resumo_nao_tem_tabela_de_idade_e_os_avisos_vem_logo_abaixo_do_quadro(tm
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Resumo"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Resumo"]
     textos = [c.value for linha in ws.iter_rows() for c in linha if isinstance(c.value, str)]
     assert "Idade da Diferença" not in textos
     assert not any(texto.startswith(faixa) for texto in textos for faixa in FAIXAS)
@@ -536,7 +539,7 @@ def test_operacoes_mostram_os_atributos_com_o_nome_do_arquivo_e_o_valor_de_b_qua
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     cabecalho = [c.value for c in ws[1]]
     assert cabecalho[7:] == ["Produto", "Carteira", "Moeda", "Filial"]
     mostrado = {
@@ -558,7 +561,7 @@ def test_bases_sem_atributos_as_operacoes_terminam_em_linha_sem_chave(tmp_path, 
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     assert [c.value for c in ws[1]] == [
         "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Linha sem Chave"
     ]
@@ -570,7 +573,7 @@ def test_por_atributo_mostra_a_diferenca_acima_do_peso_do_maior_para_o_menor(tmp
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Atributo"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Por Atributo"]
     linhas = list(ws.iter_rows())
     assert [c.value for c in linhas[0]] == CABECALHO_POR_ATRIBUTO
     mostrado = [tuple(c.value for c in linha) for linha in linhas[1:]]
@@ -595,7 +598,7 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
     assert abas_visiveis(wb) == ABAS
     assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [CABECALHO_POR_ATRIBUTO]
 
@@ -620,7 +623,7 @@ def test_resumo_mostra_os_atributos_problematicos_do_gabarito_depois_dos_avisos(
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     linhas = ler_problematicos(caminho)
     mostrado = [tuple(c.value for c in linha) for linha in linhas]
     esperado = gabarito.por_atributo[:5]
@@ -643,7 +646,7 @@ def test_sem_atributo_acima_do_peso_o_resumo_nao_tem_atributos_problematicos(tmp
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    assert ler_problematicos(capsys.readouterr().out.strip()) is None
+    assert ler_problematicos(capsys.readouterr().out.splitlines()[0]) is None
 
 
 def gravar_com_limite(base_a, base_b, pasta, limite):
@@ -772,7 +775,7 @@ def test_a_aba_erros_lista_as_linhas_rejeitadas_plantadas_e_o_resumo_avisa_quant
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    caminho = capsys.readouterr().out.strip()
+    caminho = capsys.readouterr().out.splitlines()[0]
     linhas = list(openpyxl.load_workbook(caminho)["Erros"].iter_rows(values_only=True))
     # A Data-base plantada só na Base B vem antes das Linhas rejeitadas
     assert linhas == [tuple(CABECALHO_DE_ERROS), DATA_BASE_SO_NA_B, *gabarito.rejeitadas]
@@ -793,7 +796,7 @@ def test_coluna_linha_sem_chave_mostra_valor_data_base_e_base_de_cada_linha_que_
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     linhas = {linha[0]: linha for linha in ws.iter_rows(min_row=2, values_only=True)}
     assert linhas["1"][4] == "Casa com linha sem Chave"
     assert linhas["1"][6] == "−10.000,00 em 30/09/2026 na Base A; 10.000,00 em 30/09/2026 na Base B"
@@ -805,7 +808,7 @@ def test_chave_plantada_casa_com_a_linha_sem_chave_de_uma_data_base_antiga(tmp_p
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
-    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    ws = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Operações com Diferença"]
     linhas = [linha for linha in ws.iter_rows(min_row=2, values_only=True) if linha[6]]
     assert {linha[0]: linha[6] for linha in linhas} == gabarito.linha_sem_chave
     assert len(linhas) == 1

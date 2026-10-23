@@ -46,6 +46,7 @@ def test_com_tudo_certo_devolve_o_xlsx_na_pasta_da_base_a(tmp_path, tolerancia, 
     assert resposta.mensagem == ""
     assert resposta.caminho == tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert resposta.caminho.exists()
+    assert resposta.caminho.with_suffix(".html").exists()
     resumo = openpyxl.load_workbook(resposta.caminho)["Resumo"]
     quadro = {rotulo: valor for rotulo, valor in resumo.iter_rows(max_col=2, values_only=True) if rotulo}
     assert quadro["Tolerância"] == em_reais

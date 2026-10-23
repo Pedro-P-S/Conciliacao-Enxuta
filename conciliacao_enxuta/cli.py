@@ -9,6 +9,7 @@ from pathlib import Path
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, SemDataBaseComum, conciliar
 from conciliacao_enxuta.excel import gravar_excel
+from conciliacao_enxuta.html import gravar_html
 from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
 
 
@@ -26,7 +27,7 @@ def tolerancia_em_centavos(texto: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m conciliacao_enxuta", description="Conciliação Enxuta")
     comandos = parser.add_subparsers(dest="comando", required=True)
-    comando_conciliar = comandos.add_parser("conciliar", help="cruza a Base A com a Base B e gera o .xlsx")
+    comando_conciliar = comandos.add_parser("conciliar", help="cruza a Base A com a Base B e gera o .xlsx e o .html")
     comando_conciliar.add_argument("base_a", type=Path, help="arquivo da Base A")
     comando_conciliar.add_argument("base_b", type=Path, help="arquivo da Base B")
     comando_conciliar.add_argument(
@@ -44,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ErroDeLeitura, SemDataBaseComum) as erro:
         print(erro, file=sys.stderr)
         return 1
-    caminho = gravar_excel(resultado, args.saida or args.base_a.parent)
-    print(caminho)
+    pasta = args.saida or args.base_a.parent
+    print(gravar_excel(resultado, pasta))
+    print(gravar_html(resultado, pasta))
     return 0

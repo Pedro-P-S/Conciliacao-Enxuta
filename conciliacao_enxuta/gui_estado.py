@@ -12,6 +12,7 @@ from pathlib import Path
 from conciliacao_enxuta.cli import tolerancia_em_centavos
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, SemDataBaseComum, conciliar
 from conciliacao_enxuta.excel import gravar_excel
+from conciliacao_enxuta.html import gravar_html
 from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
 
 TOLERANCIA_PADRAO_EM_TEXTO = f"{TOLERANCIA_PADRAO // 100},{TOLERANCIA_PADRAO % 100:02d}"
@@ -36,7 +37,7 @@ def _gravar_traceback(erro: Exception) -> Path:
 
 
 def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta:
-    """Os textos da janela → o `.xlsx` na pasta da Base A, ou a mensagem do que falta."""
+    """Os textos da janela → o `.xlsx` e o `.html` na pasta da Base A (a resposta traz o do `.xlsx`), ou a mensagem do que falta."""
     if not base_a.strip():
         return Resposta(mensagem="Escolha o arquivo da Base A.")
     if not base_b.strip():
@@ -48,7 +49,9 @@ def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta
     try:
         (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(Path(base_a)), ler_base(Path(base_b))
         resultado = conciliar(lida_a, lida_b, centavos, rejeitadas_a, rejeitadas_b)
-        return Resposta(caminho=gravar_excel(resultado, Path(base_a).parent))
+        pasta = Path(base_a).parent
+        gravar_html(resultado, pasta)
+        return Resposta(caminho=gravar_excel(resultado, pasta))
     except (ErroDeLeitura, SemDataBaseComum) as erro:
         return Resposta(mensagem=str(erro))
     except Exception as erro:
