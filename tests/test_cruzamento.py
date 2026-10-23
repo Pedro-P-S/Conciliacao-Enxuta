@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 
 import polars as pl
+import pytest
 
 from conciliacao_enxuta.cruzamento import SemChave, conciliar
 
@@ -506,3 +507,83 @@ def test_bases_sem_atributos_nao_tem_atributos_nas_operacoes():
 
     assert r.operacoes.height == 1
     assert r.atributos.columns == []
+
+
+def test_valor_de_atributo_com_pouco_peso_e_muita_diferenca_fica_no_topo_por_atributo():
+    # Legado pesa 1.000 de 301.000 no total e tem metade da Diferença absoluta; Atual pesa o resto e tem a outra metade
+    a = base_com_atributos(
+        [
+            ("legado", 1_000, {"Carteira": "Legado"}),
+            ("atual_1", 100_000, {"Carteira": "Atual"}),
+            ("atual_2", 100_000, {"Carteira": "Atual"}),
+            ("atual_3", 100_000, {"Carteira": "Atual"}),
+        ]
+    )
+    b = base([("legado", 51_000), ("atual_1", 50_000), ("atual_2", 100_000), ("atual_3", 100_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").rows() == [
+        ("Carteira", "Legado", -50_000, 0.5),
+        ("Carteira", "Atual", 50_000, 0.5),
+    ]
+
+
+def test_valor_que_todas_as_chaves_tem_tem_concentracao_1_e_fica_abaixo_do_concentrado():
+    a = base_com_atributos(
+        [
+            ("legado", 1_000, {"Carteira": "Legado", "Moeda": "BRL"}),
+            ("atual_1", 100_000, {"Carteira": "Atual", "Moeda": "BRL"}),
+            ("atual_2", 100_000, {"Carteira": "Atual", "Moeda": "BRL"}),
+        ]
+    )
+    b = base([("legado", 51_000), ("atual_1", 50_000), ("atual_2", 100_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").rows() == [
+        ("Carteira", "Legado", -50_000, 0.5),
+        ("Moeda", "BRL", 0, 1.0),
+        ("Carteira", "Atual", 50_000, 0.5),
+    ]
+    assert r.por_atributo["Concentracao"][1] == pytest.approx(1.0)
+
+
+def test_peso_no_total_e_o_valor_a_absoluto_e_cai_para_o_valor_b_quando_a_e_zero():
+    a = base_com_atributos(
+        [
+            ("a_zero", 0, {"Canal": "X"}),  # peso 10.000, de B
+            ("a_vale", 10_000, {"Canal": "Z"}),  # peso 10.000, de A, e não os 60.000 de B
+            ("negativo", -80_000, {"Canal": "Y"}),  # peso 80.000
+        ]
+    )
+    b = base_com_atributos(
+        [
+            ("a_zero", 10_000, {"Canal": "X"}),
+            ("a_vale", 60_000, {"Canal": "Z"}),
+            ("negativo", -80_000, {"Canal": "Y"}),
+            ("so_em_b", 10_000, {"Canal": "X"}),  # peso 10.000, de B
+        ]
+    )
+
+    r = conciliar(a, b, tolerancia=100)
+
+    # Peso total 110.000 e Diferença absoluta 70.000: Z = (50/70) ÷ (10/110) e X = (20/70) ÷ (20/110)
+    assert r.por_atributo.select("Valor", "Diferenca").rows() == [("Z", -50_000), ("X", -20_000)]
+    assert r.por_atributo["Concentracao"].to_list() == pytest.approx([55 / 7, 11 / 7])
+
+
+def test_por_atributo_so_tem_os_valores_com_alguma_chave_com_diferenca():
+    a = base_com_atributos(
+        [
+            ("com", 10_000, {"Produto": "Crédito"}),
+            ("dentro", 10_050, {"Produto": "Débito"}),  # Diferença dentro da Tolerância
+            ("igual", 10_000, {"Produto": "Câmbio"}),
+            ("igual_credito", 10_000, {"Produto": "Crédito"}),
+        ]
+    )
+    b = base([("com", 0), ("dentro", 10_000), ("igual", 10_000), ("igual_credito", 10_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.select("Valor", "Diferenca", "Parte").rows() == [("Crédito", 10_000, 1.0)]

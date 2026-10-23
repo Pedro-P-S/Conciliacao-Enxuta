@@ -2,7 +2,8 @@
 
 As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar pelo cruzamento.
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
-A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial.
+A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial. As duas trazem a
+Carteira, em que Legado concentra a Diferença, e a Moeda, BRL em todas as Chaves.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
 
@@ -43,6 +44,18 @@ PAUSAS = {
 }
 
 PRODUTOS = ("Crédito", "Débito", "Câmbio", "Seguro")
+# Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato
+CABECALHO_A = ["CHAVE", "data", "Valor ", "Produto", "Carteira", "Moeda"]
+CABECALHO_B = [" Chave", "DATA", "VALOR", "Produto", "Filial", "Carteira", "Moeda"]
+ATRIBUTOS_A, ATRIBUTOS_B = CABECALHO_A[3:], CABECALHO_B[3:]
+
+
+def _legado(i: int) -> bool:
+    """As Chaves da Carteira Legado: pouco peso no total e muita Diferença.
+
+    Caem todas no caso da Vírgula deslocada (i % 10 == 9), que nelas é sempre B = 1000 × A.
+    """
+    return i % 20 == 19
 
 
 @dataclass(frozen=True)
@@ -66,6 +79,8 @@ class Gabarito:
     aberta_desde: dict[str, date]  # das Chaves das operações
     abertas_desde_a_primeira: int
     atributos: dict[str, dict[str, str | None]]  # das Chaves das operações: {Chave: {Atributo: valor}}
+    # (Atributo, Valor, Diferença, % da Diferença absoluta, Concentração), por Concentração decrescente
+    por_atributo: tuple[tuple[str, str, int, float, float], ...]
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
     por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
 
@@ -102,17 +117,21 @@ def _linhas_da_base(
     return linhas + segundas + sem_chave
 
 
-def _atributos_plantados(chave: str) -> tuple[str | None, str | None, str | None]:
-    """(Produto em A, Produto em B, Filial em B) da Chave.
+def _atributos_plantados(chave: str) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Os Atributos da Chave em A e em B, como {Atributo: valor}.
 
     O Produto fica vazio em A nas Chaves múltiplas de 7.
     As órfãs dentro da Tolerância e as linhas sem Chave não têm Atributo.
     """
     if not re.fullmatch(r"C\d{5}", chave):
-        return None, None, None
+        return {}, {}
     i = int(chave[1:])
     produto = PRODUTOS[i % len(PRODUTOS)]
-    return (None if i % 7 == 0 else produto), produto, f"{i % 5 + 1:02d}"
+    nas_duas = {"Carteira": "Legado" if _legado(i) else "Atual", "Moeda": "BRL"}
+    return (
+        {"Produto": None if i % 7 == 0 else produto, **nas_duas},
+        {"Produto": produto, "Filial": f"{i % 5 + 1:02d}", **nas_duas},
+    )
 
 
 def _escrever_csv(caminho: Path, cabecalho: list[str], linhas: list[list[str | None]]) -> None:
@@ -200,6 +219,8 @@ def _posicao(
         elif caso == 9:  # Vírgula deslocada, para mais ou para menos
             fator = sorteio.choice([10, 100, 1000])
             a[chave], b[chave] = sorteio.choice([(valor * fator, valor), (valor, valor * fator)])
+            if _legado(i):  # a Vírgula deslocada da Carteira Legado
+                a[chave], b[chave] = valor, valor * 1000
             diferencas[chave], tipos[chave] = a[chave] - b[chave], "Vírgula deslocada"
         elif caso == 0 and i % 20 == 10:  # Dígitos trocados
             a[chave], b[chave] = _digitos_trocados(sorteio)
@@ -276,16 +297,14 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     aberta_desde = {chave: _aberta_desde(chave, plantadas) for chave in diferencas}
 
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
-    # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato.
     # As linhas sem Chave vão na Data-base mais recente; a Base B as repete na Data-base ignorada, onde não contam.
-    cabecalho_a, cabecalho_b = ["CHAVE", "data", "Valor ", "Produto"], [" Chave", "DATA", "VALOR", "Produto", "Filial"]
     linhas_a = [
-        (chave, data, valor, _atributos_plantados(chave)[0])
+        (chave, data, valor, *map(_atributos_plantados(chave)[0].get, ATRIBUTOS_A))
         for data, valores in posicoes_a.items()
         for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A if data == DATA_BASE else [])
     ]
     linhas_b = [
-        (f" {chave} ", data, valor, *_atributos_plantados(chave)[1:])
+        (f" {chave} ", data, valor, *map(_atributos_plantados(chave)[1].get, ATRIBUTOS_B))
         for data, valores in posicoes_b.items()
         for chave, valor in _linhas_da_base(
             valores, REPETIDAS_B, SEM_CHAVE_B if data in (DATA_BASE, SO_NA_BASE_B) else []
@@ -293,14 +312,14 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     ]
     if formato == "csv":
         _escrever_csv(
-            base_a, cabecalho_a, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
+            base_a, CABECALHO_A, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
         )
         _escrever_csv(
-            base_b, cabecalho_b, [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
+            base_b, CABECALHO_B, [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
         )
     else:
-        _escrever_nativo(base_a, cabecalho_a, linhas_a)
-        _escrever_nativo(base_b, cabecalho_b, linhas_b)
+        _escrever_nativo(base_a, CABECALHO_A, linhas_a)
+        _escrever_nativo(base_b, CABECALHO_B, linhas_b)
     return Gabarito(
         base_a=base_a,
         base_b=base_b,
@@ -324,17 +343,47 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         por_idade=_por_idade(diferencas, aberta_desde),
         aberta_desde=aberta_desde,
         abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
-        atributos={chave: _atributos_da_operacao(chave, chave in a, chave in b) for chave in diferencas},
+        atributos={chave: _atributos_da_chave(chave, chave in a, chave in b) for chave in diferencas},
+        por_atributo=_por_atributo(a, b, diferencas),
     )
 
 
-def _atributos_da_operacao(chave: str, em_a: bool, em_b: bool) -> dict[str, str | None]:
-    """Produto de A ou, se vazio ou ausente, de B; a Filial só existe em B."""
-    produto_a, produto_b, filial = _atributos_plantados(chave)
-    return {
-        "Produto": (produto_a if em_a else None) or (produto_b if em_b else None),
-        "Filial": filial if em_b else None,
-    }
+def _atributos_da_chave(chave: str, em_a: bool, em_b: bool) -> dict[str, str | None]:
+    """Cada Atributo de A ou, se vazio ou ausente, de B: primeiro os de A, depois os só de B (a Filial)."""
+    de_a, de_b = _atributos_plantados(chave)
+    nomes = dict.fromkeys(ATRIBUTOS_A + ATRIBUTOS_B)
+    return {nome: (de_a.get(nome) if em_a else None) or (de_b.get(nome) if em_b else None) for nome in nomes}
+
+
+def _por_atributo(
+    a: dict[str, int], b: dict[str, int], diferencas: dict[str, int]
+) -> tuple[tuple[str, str, int, float, float], ...]:
+    """(Atributo, Valor, Diferença, % da Diferença absoluta, Concentração) dos valores com alguma Diferença plantada.
+
+    O peso de cada Chave no total é |A|, ou |B| quando A é zero ou ausente; a Concentração é a % da Diferença
+    absoluta ÷ a % do peso no total.
+    """
+    pesos = {chave: abs(a.get(chave, 0)) or abs(b.get(chave, 0)) for chave in a.keys() | b.keys()}
+    peso_total, absoluta_total = sum(pesos.values()), sum(abs(d) for d in diferencas.values())
+    soma: dict[tuple[str, str], tuple[int, int, int, bool]] = {}
+    for chave, peso in pesos.items():
+        diferenca = diferencas.get(chave)
+        for atributo, valor in _atributos_da_chave(chave, chave in a, chave in b).items():
+            if valor is None:
+                continue
+            p, d, absoluta, com_diferenca = soma.get((atributo, valor), (0, 0, 0, False))
+            soma[(atributo, valor)] = (
+                p + peso,
+                d + (diferenca or 0),
+                absoluta + abs(diferenca or 0),
+                com_diferenca or diferenca is not None,
+            )
+    linhas = [
+        (atributo, valor, d, absoluta / absoluta_total, (absoluta / absoluta_total) / (p / peso_total))
+        for (atributo, valor), (p, d, absoluta, com_diferenca) in soma.items()
+        if com_diferenca
+    ]
+    return tuple(sorted(linhas, key=lambda linha: (-linha[4], linha[0], linha[1])))
 
 
 if __name__ == "__main__":
