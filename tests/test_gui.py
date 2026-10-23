@@ -71,3 +71,47 @@ def test_autoteste_monta_a_janela_escondida_fecha_e_sai_com_0():
     )
 
     assert saida.returncode == 0, saida.stderr
+
+
+@pytest.fixture
+def pasta_do_log(tmp_path, monkeypatch):
+    """Aponta o `%LOCALAPPDATA%` para uma pasta temporária: o erros.log real nunca é tocado."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    return tmp_path / "localappdata" / "ConciliacaoEnxuta"
+
+
+def test_erro_de_leitura_vira_a_mensagem_simples_da_leitura(tmp_path, pasta_do_log):
+    base_a = tmp_path / "a.csv"
+    base_a.write_text("Chave;Data\n1;30/09/2026\n", encoding="utf-8")
+
+    resposta = conciliar_pela_janela(str(base_a), str(base_a), "1,00")
+
+    assert resposta.caminho is None
+    assert resposta.mensagem.startswith("a.csv: ")
+    assert "Valor" in resposta.mensagem
+    assert "Traceback" not in resposta.mensagem
+
+
+def test_erro_inesperado_vira_mensagem_generica_e_o_traceback_vai_para_o_log(tmp_path, pasta_do_log):
+    pasta_com_nome_de_base = tmp_path / "base.csv"
+    pasta_com_nome_de_base.mkdir()
+
+    resposta = conciliar_pela_janela(str(pasta_com_nome_de_base), str(pasta_com_nome_de_base), "1,00")
+
+    assert resposta.caminho is None
+    assert str(pasta_do_log / "erros.log") in resposta.mensagem
+    assert "Traceback" not in resposta.mensagem
+    assert "Errno" not in resposta.mensagem
+    log = (pasta_do_log / "erros.log").read_text(encoding="utf-8")
+    assert "Traceback" in log
+    assert "Errno" in log
+
+
+def test_o_log_acumula_um_traceback_por_falha(tmp_path, pasta_do_log):
+    pasta_com_nome_de_base = tmp_path / "base.csv"
+    pasta_com_nome_de_base.mkdir()
+
+    for _ in range(2):
+        conciliar_pela_janela(str(pasta_com_nome_de_base), str(pasta_com_nome_de_base), "1,00")
+
+    assert (pasta_do_log / "erros.log").read_text(encoding="utf-8").count("Traceback") == 2
