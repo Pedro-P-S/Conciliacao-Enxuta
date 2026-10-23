@@ -10,7 +10,7 @@ O analista tem duas bases que deviam ter os mesmos valores e não têm. Somar e 
 
 ## Solução
 
-O usuário escolhe dois arquivos, Base A e Base B, confere a Tolerância e clica em Conciliar. As colunas `Chave`, `Data` e `Valor` são reconhecidas pelo nome, e o resto é Atributo. Cada arquivo pode trazer várias Data-bases, por exemplo uma posição por dia útil durante seis meses.
+O usuário escolhe dois arquivos, Base A e Base B, confere a Tolerância e clica em Conciliar. As colunas `Chave`, `Data` e `Valor` são reconhecidas pelo nome, e o resto é Atributo. Cada arquivo pode trazer várias Data-bases, por exemplo uma posição por dia útil durante seis meses. As linhas sem Chave, como lançamentos manuais, ficam fora do cruzamento pela Chave, mas entram nos totais e na Diferença de cada Data-base.
 
 Sai um único `.xlsx` com 4 abas:
 - **Resumo**: os totais da Data-base mais recente, a Idade da Diferença por faixa, os avisos e um gráfico da Diferença absoluta no tempo.
@@ -18,7 +18,7 @@ Sai um único `.xlsx` com 4 abas:
 - **Por Atributo**: onde a Diferença se concentra, descontado o peso que cada valor já tem no total.
 - **Operações com Diferença**: as Chaves com Diferença na Data-base mais recente, da maior para a menor, com o Tipo do Erro e o Aberta desde.
 
-O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave, o Tipo do Erro, a Concentração por Atributo e há quanto tempo cada Diferença está aberta.
+O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave, o Tipo do Erro, a linha sem Chave que casa com a Diferença de uma Chave, a Concentração por Atributo e há quanto tempo cada Diferença está aberta.
 
 ## Histórias do usuário
 
@@ -33,7 +33,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 9. Como analista, quero mandar um arquivo com seis meses de posições diárias, para acompanhar a Diferença no tempo.
 10. Como analista, quero que as Data-bases que estão só numa base sejam ignoradas e listadas, para não ver picos falsos.
 11. Como analista, quero que linhas com a mesma Chave na mesma Data-base sejam somadas.
-12. Como analista, quero que linhas sem Chave fiquem fora do cruzamento e que o Resumo me diga quantas são e quanto somam.
+12. Como analista, quero que linhas sem Chave fiquem fora do cruzamento pela Chave e que o Resumo me diga quantas são e quanto somam.
 13. Como analista, quero definir uma Tolerância (padrão de R$ 1,00), para que diferenças de centavos não poluam o resultado.
 14. Como analista, quero que a Tolerância valha também para Chaves Só em A ou Só em B.
 15. Como analista, quero ver no Resumo o Total A, o Total B, a Diferença total, a Diferença absoluta e quantas Chaves têm Diferença na Data-base mais recente.
@@ -47,7 +47,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 23. Como analista, não quero que um valor de Atributo que todas as Chaves têm apareça como suspeito.
 24. Como analista, quero ver por Atributo só a Diferença e a Concentração, sem colunas técnicas.
 25. Como analista, quero a lista das Chaves com Diferença na Data-base mais recente, da maior para a menor Diferença absoluta.
-26. Como analista, quero ver em cada Chave o Valor A, o Valor B, a Diferença, o Tipo do Erro, o Aberta desde e todos os Atributos.
+26. Como analista, quero ver em cada Chave o Valor A, o Valor B, a Diferença, o Tipo do Erro, o Aberta desde, a Linha sem Chave e todos os Atributos.
 27. Como analista, quero que o Tipo do Erro liste todos os tipos que se aplicam.
 28. Como analista, quero que o Aberta desde mostre a data da última abertura, quando a Diferença some e volta.
 29. Como analista, quero que o Aberta desde não mude quando a Diferença só muda de valor.
@@ -58,6 +58,11 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 34. Como analista, quero ver o caminho do resultado no fim e poder abrir a pasta com um clique.
 35. Como analista, quero mensagens de erro em linguagem simples, sem traceback na tela.
 36. Como analista técnico, quero rodar a conciliação pela linha de comando, para automatizar.
+37. Como analista, quero que o Total A e o Total B incluam as linhas sem Chave, para que batam com a soma de cada arquivo.
+38. Como analista, quero que cada linha sem Chave conte como Diferença do valor inteiro na Data-base em que está, no Resumo e no gráfico, porque ela não tem par na outra base.
+39. Como analista, quero saber quando uma linha sem Chave tem o valor que zeraria a Diferença de uma Chave, para achar o lançamento manual feito para ela.
+40. Como analista, quero que essa comparação seja feita só na Data-base em que a linha aparece pela primeira vez, porque depois a Diferença da Chave muda e o mesmo lançamento se repete nas posições seguintes.
+41. Como analista, quero ver ao lado da Chave o valor, a data e a base dessa linha, para achá-la no arquivo e conferir.
 
 ## Decisões de implementação
 
@@ -68,7 +73,8 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - `cli`, `gui` e `gui_estado`. A GUI é casca: as regras ficam em `gui_estado`, que não importa Tkinter.
 
 **Regras:**
-- **Preparação:** linhas sem Chave saem do cruzamento e são contadas e somadas por base, só na Data-base mais recente, como os totais. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
+- **Preparação:** linhas sem Chave (vazia ou só espaço) saem do cruzamento pela Chave. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
+- **Linhas sem Chave:** cada uma é uma Diferença do valor inteiro na sua Data-base: +Valor na Base A, −Valor na Base B, sem somar uma linha com outra. Como as Chaves Só em A ou Só em B, conta como Diferença quando |Valor| > Tolerância. Entram no Total A, no Total B, na Diferença total, na Diferença absoluta e no gráfico. Não entram em Chaves com Diferença, Idade, Por Tipo do Erro, Por Atributo nem na aba de operações. Valem só nas Data-bases comuns, como o resto.
 - **Data-bases:** entram só as comuns às duas bases. A Data-base mais recente é a maior comum.
 - **Cruzamento por Data-base:** junção completa pela Chave. Diferença = A − B, e o lado que falta conta como 0. Uma Chave tem Diferença quando |Diferença| > Tolerância. O Atributo vem de A e, se vazio ou ausente, de B.
 - **Tipo do Erro**, só na Data-base mais recente, com todos os que se aplicam separados por `; ` nesta ordem:
@@ -78,20 +84,22 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
   - Duplicado: A = 2×B ou B = 2×A;
   - Vírgula deslocada: A/B ∈ {10, 100, 1000, 0,1, 0,01, 0,001};
   - Dígitos trocados: |Diferença| múltiplo de 9 centavos e os mesmos dígitos de |A| e |B| em outra ordem;
+  - Casa com linha sem Chave: uma linha sem Chave zera a Diferença que a Chave tinha na Data-base dessa linha (ver abaixo);
   - Sem padrão: nenhum dos anteriores.
 
-  A Tolerância vale como folga nas comparações de Sinal, Duplicado e Vírgula. A detecção pode ser copiada do projeto grande e adaptada, sem importar.
+  A Tolerância vale como folga nas comparações de Sinal, Duplicado, Vírgula e Casa com linha sem Chave. A detecção pode ser copiada do projeto grande e adaptada, sem importar.
+- **Casa com linha sem Chave:** cada valor de linha sem Chave é comparado uma vez só, na primeira Data-base comum em que ele aparece entre as linhas sem Chave da sua base; depois, o mesmo valor nas Data-bases seguintes é o mesmo lançamento e não é comparado de novo. Nessa Data-base, a linha casa com uma Chave que tinha Diferença quando |Diferença + Valor| ≤ Tolerância, se a linha está na Base A, ou |Diferença − Valor| ≤ Tolerância, se está na Base B. Uma linha para uma Chave, sem combinar várias linhas. Uma linha pode casar com mais de uma Chave, e todas ganham o Tipo. O Tipo só aparece nas Chaves com Diferença na Data-base mais recente, mesmo que a Diferença tenha mudado depois do lançamento.
 - **Aberta desde:** a primeira Data-base de uma sequência contínua de Diferença até a mais recente. Se a sequência começa na primeira Data-base, é marcada como "ou antes".
 - **Idade:** dias corridos entre o Aberta desde e a Data-base mais recente. Faixas: ≤ 30, 31–90, 91–365, 366–1826 e > 1826 dias.
 - **Concentração por valor:** para cada Atributo e valor, é a % da Diferença absoluta menos a % de |Valor A| no total (usa B quando A é zero). Entram só os valores com pelo menos uma Chave com Diferença. A tabela é ordenada pela Diferença absoluta de cada valor, decrescente; no empate, pelo Atributo e pelo Valor. A coluna Diferença é a soma com sinal.
-- **Invariante:** na Data-base mais recente, Total A − Total B = Diferença total das Chaves com Diferença + a soma das Diferenças dentro da Tolerância.
+- **Invariante:** na Data-base mais recente, Total A − Total B = Diferença total (das Chaves com Diferença e das linhas sem Chave acima da Tolerância) + a soma das Diferenças dentro da Tolerância.
 
 **Saída:**
 - **Arquivo:** `conciliacao_AAAA-MM-DD.xlsx`, na pasta da Base A, sobrescrevendo se já existir. Reais com formato `#.##0,00`.
-- **Resumo:** um quadro com a Data-base mais recente, a Tolerância, Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença. Embaixo, as 5 faixas de Idade com Chaves e Diferença absoluta. Depois, os avisos, só quando acontecem: linhas sem Chave por base, Data-bases ignoradas e o corte de operações. Por último, um gráfico de linha da Diferença absoluta por Data-base, com os dados na aba oculta `_grafico`. Sem tabela de histórico.
+- **Resumo:** um quadro com a Data-base mais recente, a Tolerância, Total A, Total B, Diferença total, Diferença absoluta (as quatro com as linhas sem Chave) e Chaves com Diferença. Embaixo, as 5 faixas de Idade com Chaves e Diferença absoluta. Depois, os avisos, só quando acontecem: linhas sem Chave por base, quantas e quanto somam na Data-base mais recente, Data-bases ignoradas e o corte de operações. Por último, um gráfico de linha da Diferença absoluta por Data-base, com os dados na aba oculta `_grafico`. Sem tabela de histórico.
 - **Por Tipo do Erro:** colunas Tipo do Erro, Chaves e Diferença absoluta, ordenadas pela Diferença absoluta, com uma nota de que uma Chave pode contar em mais de um Tipo.
 - **Por Atributo:** colunas Atributo, Valor, Diferença e "% da Diferença − % do Total" (a Concentração). Sem filtro.
-- **Operações com Diferença:** colunas Chave, Valor A, Valor B, Diferença, Tipo do Erro, Aberta desde e os Atributos com o nome original, ordenadas por |Diferença| decrescente. Cabeçalho congelado e com filtro. Acima do limite, mostra as maiores, e um aviso na linha 1 diz "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores."; o cabeçalho passa para a linha 2.
+- **Operações com Diferença:** colunas Chave, Valor A, Valor B, Diferença, Tipo do Erro, Aberta desde, Linha sem Chave e os Atributos com o nome original, ordenadas por |Diferença| decrescente. Cabeçalho congelado e com filtro. Acima do limite, mostra as maiores, e um aviso na linha 1 diz "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores."; o cabeçalho passa para a linha 2. A coluna Linha sem Chave é texto, como `−10.000,00 em 15/03/2026 na Base B` (o valor da linha, a Data-base em que foi comparada e a base), com várias separadas por `; `, e fica vazia quando a Chave não casa com nenhuma.
 
 **Interface:**
 - **GUI Tkinter:** Base A e Base B, cada uma com o botão Procurar, a Tolerância (padrão 1,00) e o botão Conciliar. No fim, mostra o caminho e um botão para abrir a pasta. Os erros aparecem em linguagem simples, e o traceback vai para `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`.
@@ -103,8 +111,8 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 ## Testes
 
 - **Um bom teste** confere comportamento externo: dadas estas bases, o resultado ou o Excel mostra isto. Não testa função interna.
-- **Seam 1, `conciliar`:** DataFrames pequenos montados no próprio teste. Cobre o cruzamento, a Tolerância (inclusive em órfãs), cada Tipo do Erro e combinações, o Aberta desde (some e volta, muda de valor, "ou antes"), as bordas das faixas, a Concentração (um Atributo concentrado e um que todas as Chaves têm), as Data-bases só numa base, as Chaves repetidas, as linhas sem Chave, o Atributo de A com fallback para B e a invariante.
-- **Seam 2, de ponta a ponta:** arquivos → `.xlsx`, lido com openpyxl. Usa um gerador de bases de exemplo com padrões plantados e um gabarito. Confere os nomes e a quantidade de abas, os totais, as faixas, a ordem das linhas, as colunas, o Aberta desde, os avisos, a existência do gráfico, os formatos de entrada, as mensagens de erro e o corte com o limite reduzido por parâmetro.
+- **Seam 1, `conciliar`:** DataFrames pequenos montados no próprio teste. Cobre o cruzamento, a Tolerância (inclusive em órfãs), cada Tipo do Erro e combinações, o Aberta desde (some e volta, muda de valor, "ou antes"), as bordas das faixas, a Concentração (um Atributo concentrado e um que todas as Chaves têm), as Data-bases só numa base, as Chaves repetidas, as linhas sem Chave (nos totais, na Diferença de cada Data-base e com a Tolerância), o Casa com linha sem Chave (na Base A e na Base B, com folga da Tolerância, numa Data-base antiga em que a Diferença era outra, o mesmo valor repetido nos dias seguintes, a Chave sem Diferença naquela Data-base e uma linha que casa com duas Chaves), o Atributo de A com fallback para B e a invariante.
+- **Seam 2, de ponta a ponta:** arquivos → `.xlsx`, lido com openpyxl. Usa um gerador de bases de exemplo com padrões plantados e um gabarito; o gerador planta uma linha sem Chave que casa com a Diferença de uma Chave numa Data-base antiga, e a Diferença dessa Chave muda depois. Confere os nomes e a quantidade de abas, os totais, as faixas, a ordem das linhas, as colunas, o Aberta desde, os avisos, a existência do gráfico, os formatos de entrada, as mensagens de erro e o corte com o limite reduzido por parâmetro.
 - **GUI:** sem teste de clique. `gui_estado` é testado pela seam 1 ou direto, e o autoteste confere que a janela monta.
 - **Prior art:** o projeto grande testa assim. Prepara duas bases, cruza, confere contra o gabarito do gerador de exemplo e lê o `.xlsx` com openpyxl.
 - Todo ticket termina com um teste com olhos de usuário em `exemplo\`.
@@ -117,6 +125,8 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - Qualidade, Pareto, Compensação Oculta e Pares Prováveis.
 - Os Tipos Valor Fixo, Percentual Constante, Ponta Zerada e Arredondamento.
 - Mostrar Abertas e Regularizadas por Data-base.
+- No Casa com linha sem Chave: combinar várias linhas para zerar uma Chave, desempatar pelos Atributos, mostrar o número da linha no arquivo e juntar a linha à Chave para zerar a Diferença.
+- Linhas sem Chave na aba de operações.
 - O `.exe`, que fica para depois.
 
 ## Notas
