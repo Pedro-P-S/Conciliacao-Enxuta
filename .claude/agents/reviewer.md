@@ -3,7 +3,7 @@ name: reviewer
 description: Etapa final do fluxo-completo. Faz o code review usando a skill ponytail-review.
 skills:
   - ponytail:ponytail-review
-model: claude-opus-5-5
+model: opus
 effort: high
 ---
 Você faz APENAS o code review.
