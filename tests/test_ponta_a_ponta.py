@@ -13,6 +13,7 @@ from conciliacao_enxuta.leitura import ler_base
 
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
+CABECALHO_POR_ATRIBUTO = ["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"]
 ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença"]
 
 
@@ -491,25 +492,27 @@ def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, cap
     assert ws.auto_filter.ref == "A1:F2"
 
 
-def test_por_atributo_mostra_a_concentracao_na_ordem_da_diferenca_absoluta(tmp_path, capsys):
+def test_por_atributo_mostra_a_diferenca_acima_do_peso_do_maior_para_o_menor(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Atributo"]
     linhas = list(ws.iter_rows())
-    assert [c.value for c in linhas[0]] == ["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"]
+    assert [c.value for c in linhas[0]] == CABECALHO_POR_ATRIBUTO
     mostrado = [tuple(c.value for c in linha) for linha in linhas[1:]]
     assert [linha[:3] for linha in mostrado] == [
-        (atributo, valor, diferenca / 100) for atributo, valor, diferenca, _ in gabarito.por_atributo
+        (atributo, valor, absoluta / 100) for atributo, valor, absoluta, _ in gabarito.por_atributo
     ]
-    assert [linha[3] for linha in mostrado] == pytest.approx([c for _, _, _, c in gabarito.por_atributo])
+    assert [linha[3] for linha in mostrado] == pytest.approx([acima for _, _, _, acima in gabarito.por_atributo])
     assert all(linha[2].number_format == FORMATO_REAIS and linha[3].number_format == FORMATO_PERCENTUAL for linha in linhas[1:])
     assert ws.auto_filter.ref is None
-    # A Carteira Legado tem pouco peso no total e muita Diferença; a Moeda BRL, que todas as Chaves têm, não é suspeita
-    concentracao = {(atributo, valor): c for atributo, valor, _, c in gabarito.por_atributo}
-    assert concentracao[("Moeda", "BRL")] == pytest.approx(0, abs=0.001)
-    assert concentracao[("Carteira", "Legado")] == max(concentracao.values())
+    # A Carteira Legado tem pouco peso no total e muita Diferença; a Moeda BRL, que todas as Chaves têm, não aparece
+    assert mostrado[0][:2] == ("Carteira", "Legado")
+    assert ("Moeda", "BRL") not in [linha[:2] for linha in mostrado]
+    assert all(linha[3] > 0 for linha in mostrado)
+    acima = [linha[3] for linha in mostrado]
+    assert acima == sorted(acima, reverse=True)
 
 
 def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path, capsys):
@@ -521,9 +524,7 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
 
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert abas_visiveis(wb) == ABAS
-    assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [
-        ["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"]
-    ]
+    assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [CABECALHO_POR_ATRIBUTO]
 
 
 def gravar_com_limite(base_a, base_b, pasta, limite):

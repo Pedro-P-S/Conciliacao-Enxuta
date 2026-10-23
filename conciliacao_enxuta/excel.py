@@ -145,19 +145,19 @@ def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 
 
 def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
-    """Onde a Diferença se concentra, já na ordem do Resultado (a Diferença absoluta); sem filtro.
+    """Os valores de Atributo com Diferença acima do peso, já na ordem do Resultado (do maior para o menor); sem filtro.
 
     Sem Atributo nas bases, fica só o cabeçalho.
     """
     ws = wb.create_sheet("Por Atributo")
-    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"], start=1):
+    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"], start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
     linhas = resultado.por_atributo.iter_rows()
-    for linha, (atributo, valor, diferenca, concentracao) in enumerate(linhas, start=2):
+    for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(linhas, start=2):
         ws.cell(linha, 1, atributo)
         ws.cell(linha, 2, valor)
-        ws.cell(linha, 3, diferenca / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, 4, concentracao).number_format = FORMATO_PERCENTUAL
+        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 24
     ws.column_dimensions["C"].width = 20
