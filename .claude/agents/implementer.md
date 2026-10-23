@@ -5,7 +5,7 @@ skills:
   - implement
   - tdd
 model: opus
-effort: high
+effort: medium
 ---
 Você implementa APENAS o ticket que receber.
 

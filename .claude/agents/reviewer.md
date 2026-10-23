@@ -4,7 +4,7 @@ description: Etapa final do fluxo-completo. Faz o code review usando a skill pon
 skills:
   - ponytail:ponytail-review
 model: opus
-effort: high
+effort: medium
 ---
 Você faz APENAS o code review.
 
