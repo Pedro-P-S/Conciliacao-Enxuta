@@ -80,10 +80,17 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
 
 def avisos_de_data_bases_ignoradas(caminho) -> list[str]:
     ws = openpyxl.load_workbook(caminho)["Resumo"]
-    return [c.value for c in ws["A"] if isinstance(c.value, str) and c.value.startswith("Data-bases ignoradas")]
+    return [c.value for c in ws["A"] if isinstance(c.value, str) and "Data-base" in c.value and "ignorad" in c.value]
 
 
-def test_varias_data_bases_o_resumo_usa_a_maior_comum_e_avisa_a_que_esta_so_na_base_b(tmp_path, capsys):
+def linhas_de_erros(caminho) -> list[tuple]:
+    return list(openpyxl.load_workbook(caminho)["Erros"].iter_rows(values_only=True))
+
+
+DATA_BASE_SO_NA_B = ("Base B", None, None, "01/10/2026", None, "Data-base só na Base B")
+
+
+def test_varias_data_bases_o_resumo_usa_a_maior_comum_e_a_que_esta_so_na_base_b_vai_para_a_aba_erros(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
     assert gabarito.data_base == date(2026, 9, 30)
     assert gabarito.data_bases_so_em_b == (date(2026, 10, 1),)
@@ -93,28 +100,34 @@ def test_varias_data_bases_o_resumo_usa_a_maior_comum_e_avisa_a_que_esta_so_na_b
     caminho = capsys.readouterr().out.strip()
     assert caminho.endswith("conciliacao_2026-09-30.xlsx")
     assert ler_resumo(caminho)["Total B"].value == gabarito.total_b / 100
-    assert avisos_de_data_bases_ignoradas(caminho) == [
-        "Data-bases ignoradas por estarem só na Base B: 01/10/2026."
-    ]
+    assert linhas_de_erros(caminho)[1] == DATA_BASE_SO_NA_B
+    assert avisos_de_data_bases_ignoradas(caminho) == []
 
 
-def test_aviso_lista_as_data_bases_de_cada_base_e_some_quando_nao_ha_nenhuma(tmp_path, capsys):
+def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(tmp_path, capsys):
     base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
     base_a.write_text(
-        "Chave,Data,Valor\n1,2026-09-28,10.00\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8"
+        "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-28,10.00\n1,2026-09-30,10.00\n2,ontem,1.00\n",
+        encoding="utf-8",
     )
     base_b.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n1,2026-10-01,10.00\n", encoding="utf-8")
 
     main(["conciliar", str(base_a), str(base_b)])
 
-    assert avisos_de_data_bases_ignoradas(capsys.readouterr().out.strip()) == [
-        "Data-bases ignoradas por estarem só na Base A: 28/09/2026, 29/09/2026.",
-        "Data-bases ignoradas por estarem só na Base B: 01/10/2026.",
+    caminho = capsys.readouterr().out.strip()
+    assert linhas_de_erros(caminho) == [
+        tuple(CABECALHO_DE_ERROS),
+        ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
+        ("Base A", None, None, "29/09/2026", None, "Data-base só na Base A"),
+        DATA_BASE_SO_NA_B,
+        ("Base A", 5, "2", "ontem", "1.00", "Data ilegível"),
     ]
+    assert avisos_de_data_bases_ignoradas(caminho) == []
+    assert "Linhas rejeitadas: 1 (veja a aba Erros)" in avisos_do_resumo(caminho)
 
-    main(["conciliar", str(base_a), str(base_a)])
+    main(["conciliar", str(base_b), str(base_b)])
 
-    assert avisos_de_data_bases_ignoradas(capsys.readouterr().out.strip()) == []
+    assert linhas_de_erros(capsys.readouterr().out.strip()) == [tuple(CABECALHO_DE_ERROS)]
 
 
 @pytest.mark.parametrize(("texto", "centavos"), [("0,50", 50), ("1,00", 100), ("2,5", 250), ("10", 1000)])
@@ -236,9 +249,7 @@ def test_bases_em_csv_xlsx_ou_parquet_dao_o_resumo_do_gabarito(tmp_path, capsys,
         "Base A": (gabarito.sem_chave_a.linhas, gabarito.sem_chave_a.soma / 100, FORMATO_REAIS),
         "Base B": (gabarito.sem_chave_b.linhas, gabarito.sem_chave_b.soma / 100, FORMATO_REAIS),
     }
-    assert avisos_de_data_bases_ignoradas(caminho) == [
-        "Data-bases ignoradas por estarem só na Base B: 01/10/2026."
-    ]
+    assert avisos_de_data_bases_ignoradas(caminho) == []
 
 
 def valores_do_resumo(caminho) -> list:
@@ -443,7 +454,6 @@ def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path
     avisos = avisos_do_resumo(capsys.readouterr().out.strip())
     assert not any("ou antes" in aviso for aviso in avisos)
     assert avisos[0] == AVISO_SEM_CHAVE
-    assert avisos[-1].startswith("Data-bases ignoradas")
 
 
 FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"]
@@ -615,7 +625,6 @@ def test_o_corte_nas_bases_de_exemplo_mostra_as_maiores_do_gabarito_e_avisa_por_
     ]
     avisos = avisos_do_resumo(caminho)
     assert avisos[-1] == aviso
-    assert avisos[-2].startswith("Data-bases ignoradas")
 
 
 def test_o_limite_e_o_total_saem_com_separador_de_milhar_brasileiro(tmp_path):
@@ -674,6 +683,22 @@ def test_a_aba_erros_lista_as_linhas_rejeitadas_plantadas_e_o_resumo_avisa_quant
 
     caminho = capsys.readouterr().out.strip()
     linhas = list(openpyxl.load_workbook(caminho)["Erros"].iter_rows(values_only=True))
-    assert linhas == [tuple(CABECALHO_DE_ERROS), *gabarito.rejeitadas]
+    # A Data-base plantada só na Base B vem antes das Linhas rejeitadas
+    assert linhas == [tuple(CABECALHO_DE_ERROS), DATA_BASE_SO_NA_B, *gabarito.rejeitadas]
     assert f"Linhas rejeitadas: {len(gabarito.rejeitadas)} (veja a aba Erros)" in avisos_do_resumo(caminho)
     conferir_quadro_do_resumo(caminho, gabarito)
+
+
+def test_o_corte_da_aba_erros_conta_as_data_bases_ignoradas_junto_com_as_linhas_rejeitadas(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave;Data;Valor\n1;28/09/2026;10,00\n1;30/09/2026;10,00\n2;;1\n3;ontem;1\n", encoding="utf-8")
+    base_b.write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n", encoding="utf-8")
+
+    caminho = gravar_com_limite(base_a, base_b, tmp_path, limite=2)
+
+    assert linhas_de_erros(caminho) == [
+        ("Nem todos os erros couberam: mostrando 2 de 3.", None, None, None, None, None),
+        tuple(CABECALHO_DE_ERROS),
+        ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
+        ("Base A", 4, "2", None, "1", "Data vazia"),
+    ]
