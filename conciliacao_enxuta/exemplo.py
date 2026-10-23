@@ -14,9 +14,17 @@ from datetime import date
 from pathlib import Path
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO as TOLERANCIA
+from conciliacao_enxuta.cruzamento import SemChave
 
 DATA_BASE = date(2026, 9, 30)
 N_CHAVES = 200
+
+# Chaves gravadas em duas linhas, que o cruzamento tem de somar: uma sem Diferença e uma com
+REPETIDAS_A = ["C00005", "C00011"]
+REPETIDAS_B = ["C00006", "C00021"]
+# Linhas sem Chave (vazia ou só espaço), que ficam fora do cruzamento
+SEM_CHAVE_A = [("", 12_345), ("   ", -2_000)]
+SEM_CHAVE_B = [("", 77_700)]
 
 
 @dataclass(frozen=True)
@@ -31,6 +39,8 @@ class Gabarito:
     diferenca_total: int
     diferenca_absoluta: int
     chaves_com_diferenca: int
+    sem_chave_a: SemChave
+    sem_chave_b: SemChave
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -45,6 +55,24 @@ def _reais_sem_milhar(centavos: int) -> str:
     sinal = "-" if centavos < 0 else ""
     reais, resto = divmod(abs(centavos), 100)
     return f"{sinal}{reais},{resto:02d}"
+
+
+def _sem_chave(linhas: list[tuple[str, int]]) -> SemChave:
+    return SemChave(linhas=len(linhas), soma=sum(valor for _, valor in linhas))
+
+
+def _linhas_do_csv(
+    valores: dict[str, int], repetidas: list[str], sem_chave: list[tuple[str, int]]
+) -> list[tuple[str, int]]:
+    """Uma linha por Chave; as `repetidas` saem em duas linhas que somam o Valor, e as sem Chave vão no fim."""
+    linhas, segundas = [], []
+    for chave, valor in valores.items():
+        if chave in repetidas:
+            linhas.append((chave, valor // 3))
+            segundas.append((chave, valor - valor // 3))
+        else:
+            linhas.append((chave, valor))
+    return linhas + segundas + sem_chave
 
 
 def _escrever(caminho: Path, cabecalho: list[str], linhas: list[list[str]]) -> None:
@@ -93,13 +121,19 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
     _escrever(
         base_a,
         ["CHAVE", "data", "Valor "],
-        [[chave, DATA_BASE.strftime("%d/%m/%Y"), _reais_com_rs(valor)] for chave, valor in a.items()],
+        [
+            [chave, DATA_BASE.strftime("%d/%m/%Y"), _reais_com_rs(valor)]
+            for chave, valor in _linhas_do_csv(a, REPETIDAS_A, SEM_CHAVE_A)
+        ],
     )
     data_do_excel = str((DATA_BASE - date(1899, 12, 30)).days)
     _escrever(
         base_b,
         [" Chave", "DATA", "VALOR"],
-        [[f" {chave} ", data_do_excel, _reais_sem_milhar(valor)] for chave, valor in b.items()],
+        [
+            [f" {chave} ", data_do_excel, _reais_sem_milhar(valor)]
+            for chave, valor in _linhas_do_csv(b, REPETIDAS_B, SEM_CHAVE_B)
+        ],
     )
     return Gabarito(
         base_a=base_a,
@@ -110,6 +144,8 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
         diferenca_total=sum(diferencas),
         diferenca_absoluta=sum(abs(d) for d in diferencas),
         chaves_com_diferenca=len(diferencas),
+        sem_chave_a=_sem_chave(SEM_CHAVE_A),
+        sem_chave_b=_sem_chave(SEM_CHAVE_B),
     )
 
 

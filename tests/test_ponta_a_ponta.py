@@ -73,3 +73,50 @@ def test_tolerancia_invalida_e_recusada_com_mensagem(tmp_path, capsys, texto):
     assert saida.value.code == 2
     assert "Tolerância inválida" in capsys.readouterr().err
     assert not list(tmp_path.glob("*.xlsx"))
+
+
+AVISO_SEM_CHAVE = "Linhas sem Chave, fora do cruzamento"
+
+
+def ler_aviso_sem_chave(caminho) -> dict | None:
+    """O aviso de linhas sem Chave como {base: (linhas, soma em reais, formato da soma)}, ou None se não há."""
+    linhas = list(openpyxl.load_workbook(caminho)["Resumo"].iter_rows(min_col=1, max_col=3))
+    inicio = next((i for i, linha in enumerate(linhas) if linha[0].value == AVISO_SEM_CHAVE), None)
+    if inicio is None:
+        return None
+    assert [c.value for c in linhas[inicio][1:]] == ["Linhas", "Soma"]
+    return {
+        linha[0].value: (linha[1].value, linha[2].value, linha[2].number_format)
+        for linha in linhas[inicio + 1 : inicio + 3]
+    }
+
+
+def test_resumo_avisa_as_linhas_sem_chave_de_cada_base_e_os_totais_somam_as_chaves_repetidas(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    assert gabarito.sem_chave_a.linhas > 0 and gabarito.sem_chave_b.linhas > 0
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    assert ler_aviso_sem_chave(caminho) == {
+        "Base A": (gabarito.sem_chave_a.linhas, gabarito.sem_chave_a.soma / 100, FORMATO_REAIS),
+        "Base B": (gabarito.sem_chave_b.linhas, gabarito.sem_chave_b.soma / 100, FORMATO_REAIS),
+    }
+    resumo = ler_resumo(caminho)
+    assert resumo["Total A"].value == gabarito.total_a / 100
+    assert resumo["Total B"].value == gabarito.total_b / 100
+    assert resumo["Diferença total"].value == gabarito.diferenca_total / 100
+    assert resumo["Diferença absoluta"].value == gabarito.diferenca_absoluta / 100
+    assert resumo["Chaves com Diferença"].value == gabarito.chaves_com_diferenca
+
+
+def test_sem_linhas_sem_chave_o_resumo_nao_tem_aviso(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n1,2026-09-30,5.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,15.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    assert ler_aviso_sem_chave(caminho) is None
+    assert ler_resumo(caminho)["Chaves com Diferença"].value == 0
