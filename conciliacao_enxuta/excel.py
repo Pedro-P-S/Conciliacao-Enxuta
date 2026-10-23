@@ -33,6 +33,15 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
     for linha, (rotulo, valor, formato) in enumerate(quadro, start=1):
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
+
+    avisos = [
+        f"Data-bases ignoradas por estarem só na {nome}: {', '.join(f'{d:%d/%m/%Y}' for d in datas)}."
+        for nome, datas in (("Base A", resultado.data_bases_so_em_a), ("Base B", resultado.data_bases_so_em_b))
+        if datas
+    ]
+    for linha, aviso in enumerate(avisos, start=len(quadro) + 2):
+        ws.cell(linha, 1, aviso)
+
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 20
 

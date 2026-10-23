@@ -1,6 +1,6 @@
 """Seam 2: arquivos → CLI → `.xlsx`, lido com openpyxl e conferido contra o gabarito."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 import openpyxl
 import pytest
@@ -40,6 +40,45 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
         assert resumo[rotulo].number_format == FORMATO_REAIS
 
 
+def avisos_de_data_bases_ignoradas(caminho) -> list[str]:
+    ws = openpyxl.load_workbook(caminho)["Resumo"]
+    return [c.value for c in ws["A"] if isinstance(c.value, str) and c.value.startswith("Data-bases ignoradas")]
+
+
+def test_varias_data_bases_o_resumo_usa_a_maior_comum_e_avisa_a_que_esta_so_na_base_b(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    assert gabarito.data_base == date(2026, 9, 30)
+    assert gabarito.data_bases_so_em_b == (date(2026, 10, 1),)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    assert caminho.endswith("conciliacao_2026-09-30.xlsx")
+    assert ler_resumo(caminho)["Total B"].value == gabarito.total_b / 100
+    assert avisos_de_data_bases_ignoradas(caminho) == [
+        "Data-bases ignoradas por estarem só na Base B: 01/10/2026."
+    ]
+
+
+def test_aviso_lista_as_data_bases_de_cada_base_e_some_quando_nao_ha_nenhuma(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text(
+        "Chave,Data,Valor\n1,2026-09-28,10.00\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8"
+    )
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n1,2026-10-01,10.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    assert avisos_de_data_bases_ignoradas(capsys.readouterr().out.strip()) == [
+        "Data-bases ignoradas por estarem só na Base A: 28/09/2026, 29/09/2026.",
+        "Data-bases ignoradas por estarem só na Base B: 01/10/2026.",
+    ]
+
+    main(["conciliar", str(base_a), str(base_a)])
+
+    assert avisos_de_data_bases_ignoradas(capsys.readouterr().out.strip()) == []
+
+
 @pytest.mark.parametrize(("texto", "centavos"), [("0,50", 50), ("1,00", 100), ("2,5", 250), ("10", 1000)])
 def test_tolerancia_no_formato_brasileiro(tmp_path, capsys, texto, centavos):
     gabarito = gerar_bases_exemplo(tmp_path)
@@ -72,4 +111,28 @@ def test_tolerancia_invalida_e_recusada_com_mensagem(tmp_path, capsys, texto):
 
     assert saida.value.code == 2
     assert "Tolerância inválida" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
+def test_sem_data_base_comum_a_mensagem_e_simples_e_nenhum_excel_e_gerado(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-10-01,10.00\n", encoding="utf-8")
+
+    codigo = main(["conciliar", str(base_a), str(base_b)])
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.out == ""
+    assert saida.err.strip() == "A Base A e a Base B não têm nenhuma Data-base em comum."
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
+def test_base_vazia_tambem_da_a_mensagem_simples(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+
+    assert main(["conciliar", str(base_a), str(base_b)]) == 1
+    assert capsys.readouterr().err.strip() == "A Base A e a Base B não têm nenhuma Data-base em comum."
     assert not list(tmp_path.glob("*.xlsx"))

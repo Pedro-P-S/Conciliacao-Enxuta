@@ -78,3 +78,37 @@ def test_positivas_e_negativas_se_anulam_na_total_e_nao_na_absoluta():
     assert r.diferenca_total == 0
     assert r.diferenca_absoluta == 80_000
     assert r.total_a == r.total_b == 60_000
+
+
+def dia(n: int) -> date:
+    return date(2026, 9, n)
+
+
+def base_com_data_bases(posicoes: dict[int, list[tuple[str, int]]]) -> pl.DataFrame:
+    """Base com várias Data-bases: {dia de setembro: linhas}."""
+    return pl.concat([base(linhas, dia(n)) for n, linhas in posicoes.items()])
+
+
+def test_entram_so_as_data_bases_comuns_e_as_outras_vem_como_ignoradas_com_a_base():
+    a = base_com_data_bases({1: [("x", 100_000)], 2: [("x", 200_000)], 3: [("x", 300_000)]})
+    b = base_com_data_bases({2: [("x", 200_000)], 3: [("x", 290_000)], 4: [("x", 999_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.data_base == dia(3)
+    assert r.total_a == 300_000
+    assert r.total_b == 290_000
+    assert r.data_bases_so_em_a == (dia(1),)
+    assert r.data_bases_so_em_b == (dia(4),)
+
+
+def test_cruza_por_chave_dentro_de_cada_data_base_e_guarda_a_diferenca_absoluta_de_cada_uma_em_ordem():
+    # A Chave x está em A na Data-base 2 e em B na Data-base 3: não cruzam entre si.
+    a = base_com_data_bases({3: [("z", 7_000)], 1: [("x", 100_000)], 2: [("x", 50_000), ("y", 1_000)]})
+    b = base_com_data_bases({2: [("y", 1_000)], 1: [("x", 100_000)], 3: [("x", 50_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.historico == ((dia(1), 0), (dia(2), 50_000), (dia(3), 57_000))
+    assert r.diferenca_absoluta == 57_000
+    assert r.chaves_com_diferenca == 2
