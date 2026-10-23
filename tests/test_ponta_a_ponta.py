@@ -25,7 +25,7 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
     esperado = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert codigo == 0
     assert capsys.readouterr().out.strip() == str(esperado)
-    assert abas_visiveis(openpyxl.load_workbook(esperado)) == ["Resumo", "Operações com Diferença"]
+    assert abas_visiveis(openpyxl.load_workbook(esperado)) == ["Resumo", "Por Tipo do Erro", "Operações com Diferença"]
 
     conferir_quadro_do_resumo(esperado, gabarito)
 
@@ -56,7 +56,7 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
 
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert wb["_grafico"].sheet_state == "hidden"
-    assert abas_visiveis(wb) == ["Resumo", "Operações com Diferença"]
+    assert abas_visiveis(wb) == ["Resumo", "Por Tipo do Erro", "Operações com Diferença"]
     linhas = list(wb["_grafico"].iter_rows(values_only=True))
     assert linhas[0] == ("Data-base", "Diferença absoluta")
     assert linhas[1:] == [
@@ -326,11 +326,46 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     linhas = list(ws.iter_rows())
-    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença"]
+    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro"]
     assert [tuple(c.value for c in linha) for linha in linhas[1:]] == [
-        (chave, a / 100, b / 100, d / 100) for chave, a, b, d in gabarito.operacoes
+        (chave, a / 100, b / 100, d / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
     ]
     assert len(linhas) - 1 == gabarito.chaves_com_diferenca
-    assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:])
+    assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:4])
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == f"A1:D{gabarito.chaves_com_diferenca + 1}"
+    assert ws.auto_filter.ref == f"A1:E{gabarito.chaves_com_diferenca + 1}"
+
+
+NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
+
+
+def test_aba_por_tipo_do_erro_soma_as_chaves_e_a_diferenca_absoluta_de_cada_tipo_com_a_nota(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    assert {tipo for tipo, _, _ in gabarito.por_tipo} == {"Só em A", "Só em B", "Sem padrão"}
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Tipo do Erro"]
+    linhas = [linha for linha in ws.iter_rows() if any(c.value is not None for c in linha)]
+    assert [c.value for c in linhas[0]] == ["Tipo do Erro", "Chaves", "Diferença absoluta"]
+    tabela = linhas[1:-1]
+    assert [(tipo.value, chaves.value, absoluta.value) for tipo, chaves, absoluta in tabela] == [
+        (tipo, chaves, absoluta / 100) for tipo, chaves, absoluta in gabarito.por_tipo
+    ]
+    assert [absoluta for _, _, absoluta in gabarito.por_tipo] == sorted(
+        (absoluta for _, _, absoluta in gabarito.por_tipo), reverse=True
+    )
+    assert all(absoluta.number_format == FORMATO_REAIS for _, _, absoluta in tabela)
+    assert linhas[-1][0].value == NOTA_POR_TIPO
+
+
+def test_sem_chaves_com_diferenca_a_aba_por_tipo_do_erro_so_tem_o_cabecalho_e_a_nota(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Tipo do Erro"]
+    valores = [[c.value for c in linha if c.value is not None] for linha in ws.iter_rows()]
+    assert [v for v in valores if v] == [["Tipo do Erro", "Chaves", "Diferença absoluta"], [NOTA_POR_TIPO]]

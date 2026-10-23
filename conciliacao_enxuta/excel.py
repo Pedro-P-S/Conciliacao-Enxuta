@@ -14,6 +14,7 @@ from conciliacao_enxuta.cruzamento import Resultado
 FORMATO_REAIS = "#,##0.00"
 FORMATO_DATA = "DD/MM/YYYY"
 FORMATO_INTEIRO = "#,##0"
+NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 
 
 def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
@@ -60,6 +61,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
     ws.column_dimensions["B"].width = 20
     ws.column_dimensions["C"].width = 20
 
+    _aba_por_tipo(wb, resultado)
     _aba_operacoes(wb, resultado)
     _grafico_da_diferenca(wb, ws, resultado)
 
@@ -91,17 +93,34 @@ def _grafico_da_diferenca(wb: openpyxl.Workbook, resumo, resultado: Resultado) -
     resumo.add_chart(grafico, f"A{resumo.max_row + 2}")
 
 
+def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
+    """Quanto cada Tipo do Erro explica, já na ordem do Resultado, e a nota abaixo da tabela."""
+    ws = wb.create_sheet("Por Tipo do Erro")
+    for coluna, titulo in enumerate(["Tipo do Erro", "Chaves", "Diferença absoluta"], start=1):
+        ws.cell(1, coluna, titulo).font = Font(bold=True)
+    for linha, (tipo, chaves, absoluta) in enumerate(resultado.por_tipo.iter_rows(), start=2):
+        ws.cell(linha, 1, tipo)
+        ws.cell(linha, 2, chaves).number_format = FORMATO_INTEIRO
+        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
+    ws.cell(resultado.por_tipo.height + 3, 1, NOTA_POR_TIPO)  # uma linha em branco abaixo da tabela
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 20
+
+
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
     """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro."""
     ws = wb.create_sheet("Operações com Diferença")
-    for coluna, titulo in enumerate(["Chave", "Valor A", "Valor B", "Diferença"], start=1):
+    for coluna, titulo in enumerate(["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro"], start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
-    for linha, (chave, a, b, diferenca) in enumerate(resultado.operacoes.iter_rows(), start=2):
+    for linha, (chave, a, b, diferenca, tipo) in enumerate(resultado.operacoes.iter_rows(), start=2):
         ws.cell(linha, 1, chave)
         for coluna, centavos in enumerate((a, b, diferenca), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, 5, tipo)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:D{resultado.operacoes.height + 1}"
+    ws.auto_filter.ref = f"A1:E{resultado.operacoes.height + 1}"
     ws.column_dimensions["A"].width = 24
     for letra in "BCD":
         ws.column_dimensions[letra].width = 18
+    ws.column_dimensions["E"].width = 24
