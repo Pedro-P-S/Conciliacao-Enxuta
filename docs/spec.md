@@ -39,7 +39,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 15. Como analista, quero ver no Resumo o Total A, o Total B, a Diferença total, a Diferença absoluta e quantas Chaves têm Diferença na Data-base mais recente.
 16. Como analista, quero ver a Diferença absoluta além da total, para não me enganar quando positivas e negativas se anulam.
 17. Como analista, quero ver no Resumo a Idade da Diferença em faixas (até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos, mais de 5 anos), com Chaves e valor em cada uma.
-18. Como analista, quero ser avisado quando uma Diferença já existia na primeira Data-base do arquivo, porque aí a idade real pode ser maior.
+18. (Retirada: o Resumo não avisa mais das Diferenças que já existiam na primeira Data-base; o "ou antes" da história 30 basta.)
 19. Como analista, quero um gráfico simples da Diferença absoluta por Data-base, sem uma tabela que estoure o Excel.
 20. Como analista, quero ver quanto cada Tipo do Erro explica, em Chaves e em Diferença absoluta.
 21. Como analista, quero saber que uma Chave com dois Tipos conta nos dois.
@@ -88,7 +88,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 
 **Saída:**
 - **Arquivo:** `conciliacao_AAAA-MM-DD.xlsx`, na pasta da Base A, sobrescrevendo se já existir. Reais com formato `#.##0,00`.
-- **Resumo:** um quadro com a Data-base mais recente, a Tolerância, Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença. Embaixo, as 5 faixas de Idade com Chaves e Diferença absoluta. Depois, os avisos, só quando acontecem: Chaves abertas desde a primeira Data-base, linhas sem Chave por base, Data-bases ignoradas e o corte de operações. Por último, um gráfico de linha da Diferença absoluta por Data-base, com os dados na aba oculta `_grafico`. Sem tabela de histórico.
+- **Resumo:** um quadro com a Data-base mais recente, a Tolerância, Total A, Total B, Diferença total, Diferença absoluta e Chaves com Diferença. Embaixo, as 5 faixas de Idade com Chaves e Diferença absoluta. Depois, os avisos, só quando acontecem: linhas sem Chave por base, Data-bases ignoradas e o corte de operações. Por último, um gráfico de linha da Diferença absoluta por Data-base, com os dados na aba oculta `_grafico`. Sem tabela de histórico.
 - **Por Tipo do Erro:** colunas Tipo do Erro, Chaves e Diferença absoluta, ordenadas pela Diferença absoluta, com uma nota de que uma Chave pode contar em mais de um Tipo.
 - **Por Atributo:** colunas Atributo, Valor, Diferença e % da Diferença. Sem filtro.
 - **Operações com Diferença:** colunas Chave, Valor A, Valor B, Diferença, Tipo do Erro, Aberta desde e os Atributos com o nome original, ordenadas por |Diferença| decrescente. Cabeçalho congelado e com filtro. Acima do limite, mostra as maiores, e um aviso na linha 1 diz "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores."; o cabeçalho passa para a linha 2.

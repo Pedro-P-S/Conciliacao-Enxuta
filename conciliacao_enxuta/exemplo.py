@@ -78,7 +78,6 @@ class Gabarito:
     # (Chave, A, B, Diferença, Tipo do Erro), por |Diferença| decrescente
     operacoes: tuple[tuple[str, int, int, int, str], ...]
     aberta_desde: dict[str, date]  # das Chaves das operações
-    abertas_desde_a_primeira: int
     atributos: dict[str, dict[str, str | None]]  # das Chaves das operações: {Chave: {Atributo: valor}}
     # (Atributo, Valor, Diferença, % da Diferença absoluta, Concentração), por Concentração decrescente
     por_atributo: tuple[tuple[str, str, int, float, float], ...]
@@ -349,7 +348,6 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         por_tipo=_por_tipo(diferencas, tipos),
         por_idade=_por_idade(diferencas, aberta_desde),
         aberta_desde=aberta_desde,
-        abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
         atributos={chave: _atributos_da_chave(chave, chave in a, chave in b) for chave in diferencas},
         por_atributo=_por_atributo(a, b, diferencas),
     )

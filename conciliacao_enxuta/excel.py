@@ -70,15 +70,6 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
 
     # Avisos, só quando acontecem, a partir de uma linha abaixo das faixas
     linha += 2
-    if resultado.abertas_desde_a_primeira:
-        primeira = resultado.historico[0][0]
-        ws.cell(
-            linha,
-            1,
-            f"Chaves com Diferença desde a primeira Data-base ({primeira:%d/%m/%Y}) ou antes: "
-            f"{resultado.abertas_desde_a_primeira}. A Diferença delas pode ser ainda mais antiga.",
-        )
-        linha += 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
         for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)

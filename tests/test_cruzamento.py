@@ -277,7 +277,7 @@ def test_diferenca_que_cai_para_dentro_da_tolerancia_conta_como_sumida():
     assert aberta_desde(r) == {"x": (dia(3), False)}
 
 
-def test_diferenca_presente_desde_a_primeira_data_base_e_marcada_ou_antes_e_contada():
+def test_diferenca_presente_desde_a_primeira_data_base_e_marcada_ou_antes():
     # A Data-base 1 está só em A: a primeira comum é a 2.
     a = base_com_data_bases(
         {1: [("z", 1)], 2: [("x", 5_000), ("y", 3_000)], 3: [("x", 6_000), ("y", 3_000), ("w", 4_000)]}
@@ -287,14 +287,12 @@ def test_diferenca_presente_desde_a_primeira_data_base_e_marcada_ou_antes_e_cont
     r = conciliar(a, b, tolerancia=100)
 
     assert aberta_desde(r) == {"x": (dia(2), True), "y": (dia(3), False), "w": (dia(3), False)}
-    assert r.abertas_desde_a_primeira == 1
 
 
 def test_com_uma_so_data_base_toda_diferenca_e_ou_antes():
     r = conciliar(base([("x", 5_000), ("y", 1)]), base([("x", 1_000), ("y", 1)]), tolerancia=100)
 
     assert aberta_desde(r) == {"x": (DIA, True)}
-    assert r.abertas_desde_a_primeira == 1
 
 
 def tipos(a: pl.DataFrame, b: pl.DataFrame, tolerancia: int = 100) -> dict[str, str]:
@@ -428,7 +426,6 @@ def test_faixas_de_idade_somam_as_chaves_com_diferenca_e_a_diferenca_absoluta():
 
     r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
 
-    assert r.abertas_desde_a_primeira == 1
     assert [nome for nome, _, _ in r.por_idade] == [
         "Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"
     ]

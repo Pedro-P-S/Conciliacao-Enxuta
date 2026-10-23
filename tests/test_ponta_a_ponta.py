@@ -416,31 +416,16 @@ def avisos_do_resumo(caminho) -> list[str]:
     return textos[textos.index("Mais de 5 anos") + 1 :]
 
 
-def test_resumo_avisa_primeiro_quantas_chaves_estao_abertas_desde_a_primeira_data_base(tmp_path, capsys):
+def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
-    assert 0 < gabarito.abertas_desde_a_primeira < gabarito.chaves_com_diferenca
+    assert any(desde == date(2026, 4, 1) for desde in gabarito.aberta_desde.values())
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
     avisos = avisos_do_resumo(capsys.readouterr().out.strip())
-    assert avisos[0] == (
-        f"Chaves com Diferença desde a primeira Data-base (01/04/2026) ou antes: {gabarito.abertas_desde_a_primeira}."
-        " A Diferença delas pode ser ainda mais antiga."
-    )
-    assert avisos[1] == AVISO_SEM_CHAVE
+    assert not any("ou antes" in aviso for aviso in avisos)
+    assert avisos[0] == AVISO_SEM_CHAVE
     assert avisos[-1].startswith("Data-bases ignoradas")
-
-
-def test_sem_chaves_abertas_desde_a_primeira_data_base_o_resumo_nao_tem_esse_aviso(tmp_path, capsys):
-    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
-    base_a.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,90.00\n", encoding="utf-8")
-    base_b.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8")
-
-    main(["conciliar", str(base_a), str(base_b)])
-
-    caminho = capsys.readouterr().out.strip()
-    assert ler_resumo(caminho)["Chaves com Diferença"].value == 1
-    assert avisos_do_resumo(caminho) == []
 
 
 FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"]
@@ -468,8 +453,7 @@ def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(
     assert sum(chaves.value for _, chaves, _ in faixas) == gabarito.chaves_com_diferenca
     assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta
     # Os avisos vêm depois das faixas
-    primeiro_aviso = next(i for i, r in enumerate(rotulos) if isinstance(r, str) and r.startswith("Chaves com Diferença desde"))
-    assert primeiro_aviso > inicio + 5
+    assert rotulos.index(AVISO_SEM_CHAVE) > inicio + 5
 
 
 @pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
