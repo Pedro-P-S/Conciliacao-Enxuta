@@ -9,7 +9,7 @@ from pathlib import Path
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, SemDataBaseComum, conciliar
 from conciliacao_enxuta.excel import gravar_excel
-from conciliacao_enxuta.leitura import ler_base
+from conciliacao_enxuta.leitura import FormatoNaoSuportado, ler_base
 
 
 def tolerancia_em_centavos(texto: str) -> int:
@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         resultado = conciliar(ler_base(args.base_a), ler_base(args.base_b), args.tolerancia)
-    except SemDataBaseComum as erro:
+    except (FormatoNaoSuportado, SemDataBaseComum) as erro:
         print(erro, file=sys.stderr)
         return 1
     caminho = gravar_excel(resultado, args.saida or args.base_a.parent)
