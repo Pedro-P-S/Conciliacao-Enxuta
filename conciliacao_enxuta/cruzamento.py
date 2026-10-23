@@ -58,15 +58,14 @@ class Resultado:
     # Os Atributos de cada linha de `operacoes`, na mesma ordem, com o nome original: primeiro os de A, depois
     # os só de B. Ficam fora de `operacoes` para um Atributo poder se chamar, por exemplo, Tipo.
     atributos: pl.DataFrame
-    abertas_desde_a_primeira: int  # as Chaves com OuAntes
     # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
     # Uma Chave com mais de um Tipo conta em cada um.
     por_tipo: pl.DataFrame
     # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
     por_idade: tuple[tuple[str, int, int], ...]
-    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal),
-    # Parte (fração da Diferença absoluta) e Concentracao (Parte ÷ fração do peso no total), por Concentracao
-    # decrescente. O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
+    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal)
+    # e Concentracao (fração da Diferença absoluta − fração do peso no total), por Diferença absoluta decrescente.
+    # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
 
 
@@ -203,7 +202,6 @@ def _por_atributo(
             "Atributo": pl.String,
             "Valor": pl.String,
             "Diferenca": pl.Int64,
-            "Parte": pl.Float64,
             "Concentracao": pl.Float64,
         }
     )
@@ -221,9 +219,8 @@ def _por_atributo(
             pl.col("Diferenca").is_not_null().any().alias("ComDiferenca"),
         )
         .filter("ComDiferenca")
-        .with_columns((pl.col("Absoluta") / absoluta_total).alias("Parte"))
-        .with_columns((pl.col("Parte") / (pl.col("Peso") / peso_total)).alias("Concentracao"))
-        .sort(["Concentracao", "Atributo", "Valor"], descending=[True, False, False])
+        .with_columns((pl.col("Absoluta") / absoluta_total - pl.col("Peso") / peso_total).alias("Concentracao"))
+        .sort(["Absoluta", "Atributo", "Valor"], descending=[True, False, False])
         .select(vazia.columns)
     )
 
@@ -292,7 +289,6 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         sem_chave_b=_sem_chave(sem_chave_b, data_base),
         operacoes=operacoes,
         atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),
-        abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),
         por_tipo=_por_tipo(operacoes),
         por_idade=_por_idade(operacoes, data_base),
         por_atributo=_por_atributo(

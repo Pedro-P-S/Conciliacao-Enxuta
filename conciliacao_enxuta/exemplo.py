@@ -78,10 +78,9 @@ class Gabarito:
     # (Chave, A, B, Diferença, Tipo do Erro), por |Diferença| decrescente
     operacoes: tuple[tuple[str, int, int, int, str], ...]
     aberta_desde: dict[str, date]  # das Chaves das operações
-    abertas_desde_a_primeira: int
     atributos: dict[str, dict[str, str | None]]  # das Chaves das operações: {Chave: {Atributo: valor}}
-    # (Atributo, Valor, Diferença, % da Diferença absoluta, Concentração), por Concentração decrescente
-    por_atributo: tuple[tuple[str, str, int, float, float], ...]
+    # (Atributo, Valor, Diferença, Concentração), por Diferença absoluta decrescente
+    por_atributo: tuple[tuple[str, str, int, float], ...]
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
     por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
 
@@ -349,7 +348,6 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         por_tipo=_por_tipo(diferencas, tipos),
         por_idade=_por_idade(diferencas, aberta_desde),
         aberta_desde=aberta_desde,
-        abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
         atributos={chave: _atributos_da_chave(chave, chave in a, chave in b) for chave in diferencas},
         por_atributo=_por_atributo(a, b, diferencas),
     )
@@ -364,11 +362,11 @@ def _atributos_da_chave(chave: str, em_a: bool, em_b: bool) -> dict[str, str | N
 
 def _por_atributo(
     a: dict[str, int], b: dict[str, int], diferencas: dict[str, int]
-) -> tuple[tuple[str, str, int, float, float], ...]:
-    """(Atributo, Valor, Diferença, % da Diferença absoluta, Concentração) dos valores com alguma Diferença plantada.
+) -> tuple[tuple[str, str, int, float], ...]:
+    """(Atributo, Valor, Diferença, Concentração) dos valores com alguma Diferença plantada.
 
     O peso de cada Chave no total é |A|, ou |B| quando A é zero ou ausente; a Concentração é a % da Diferença
-    absoluta ÷ a % do peso no total.
+    absoluta − a % do peso no total. Ordem: Diferença absoluta decrescente, depois Atributo e Valor.
     """
     pesos = {chave: abs(a.get(chave, 0)) or abs(b.get(chave, 0)) for chave in a.keys() | b.keys()}
     peso_total, absoluta_total = sum(pesos.values()), sum(abs(d) for d in diferencas.values())
@@ -385,12 +383,12 @@ def _por_atributo(
                 absoluta + abs(diferenca or 0),
                 com_diferenca or diferenca is not None,
             )
-    linhas = [
-        (atributo, valor, d, absoluta / absoluta_total, (absoluta / absoluta_total) / (p / peso_total))
+    linhas = sorted(
+        (-absoluta, atributo, valor, d, absoluta / absoluta_total - p / peso_total)
         for (atributo, valor), (p, d, absoluta, com_diferenca) in soma.items()
         if com_diferenca
-    ]
-    return tuple(sorted(linhas, key=lambda linha: (-linha[4], linha[0], linha[1])))
+    )
+    return tuple((atributo, valor, d, concentracao) for _, atributo, valor, d, concentracao in linhas)
 
 
 if __name__ == "__main__":

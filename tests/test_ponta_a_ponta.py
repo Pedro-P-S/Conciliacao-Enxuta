@@ -416,31 +416,16 @@ def avisos_do_resumo(caminho) -> list[str]:
     return textos[textos.index("Mais de 5 anos") + 1 :]
 
 
-def test_resumo_avisa_primeiro_quantas_chaves_estao_abertas_desde_a_primeira_data_base(tmp_path, capsys):
+def test_resumo_nao_avisa_das_chaves_abertas_desde_a_primeira_data_base(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
-    assert 0 < gabarito.abertas_desde_a_primeira < gabarito.chaves_com_diferenca
+    assert any(desde == date(2026, 4, 1) for desde in gabarito.aberta_desde.values())
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
     avisos = avisos_do_resumo(capsys.readouterr().out.strip())
-    assert avisos[0] == (
-        f"Chaves com Diferença desde a primeira Data-base (01/04/2026) ou antes: {gabarito.abertas_desde_a_primeira}."
-        " A Diferença delas pode ser ainda mais antiga."
-    )
-    assert avisos[1] == AVISO_SEM_CHAVE
+    assert not any("ou antes" in aviso for aviso in avisos)
+    assert avisos[0] == AVISO_SEM_CHAVE
     assert avisos[-1].startswith("Data-bases ignoradas")
-
-
-def test_sem_chaves_abertas_desde_a_primeira_data_base_o_resumo_nao_tem_esse_aviso(tmp_path, capsys):
-    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
-    base_a.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,90.00\n", encoding="utf-8")
-    base_b.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8")
-
-    main(["conciliar", str(base_a), str(base_b)])
-
-    caminho = capsys.readouterr().out.strip()
-    assert ler_resumo(caminho)["Chaves com Diferença"].value == 1
-    assert avisos_do_resumo(caminho) == []
 
 
 FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"]
@@ -468,8 +453,7 @@ def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(
     assert sum(chaves.value for _, chaves, _ in faixas) == gabarito.chaves_com_diferenca
     assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta
     # Os avisos vêm depois das faixas
-    primeiro_aviso = next(i for i, r in enumerate(rotulos) if isinstance(r, str) and r.startswith("Chaves com Diferença desde"))
-    assert primeiro_aviso > inicio + 5
+    assert rotulos.index(AVISO_SEM_CHAVE) > inicio + 5
 
 
 @pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
@@ -507,26 +491,25 @@ def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, cap
     assert ws.auto_filter.ref == "A1:F2"
 
 
-def test_por_atributo_mostra_no_topo_o_valor_concentrado_e_abaixo_o_que_todas_as_chaves_tem(tmp_path, capsys):
+def test_por_atributo_mostra_a_concentracao_na_ordem_da_diferenca_absoluta(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
 
     main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Atributo"]
     linhas = list(ws.iter_rows())
-    assert [c.value for c in linhas[0]] == ["Atributo", "Valor", "Diferença", "% da Diferença"]
+    assert [c.value for c in linhas[0]] == ["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"]
     mostrado = [tuple(c.value for c in linha) for linha in linhas[1:]]
     assert [linha[:3] for linha in mostrado] == [
-        (atributo, valor, diferenca / 100) for atributo, valor, diferenca, _, _ in gabarito.por_atributo
+        (atributo, valor, diferenca / 100) for atributo, valor, diferenca, _ in gabarito.por_atributo
     ]
-    assert [linha[3] for linha in mostrado] == pytest.approx([parte for _, _, _, parte, _ in gabarito.por_atributo])
+    assert [linha[3] for linha in mostrado] == pytest.approx([c for _, _, _, c in gabarito.por_atributo])
     assert all(linha[2].number_format == FORMATO_REAIS and linha[3].number_format == FORMATO_PERCENTUAL for linha in linhas[1:])
     assert ws.auto_filter.ref is None
     # A Carteira Legado tem pouco peso no total e muita Diferença; a Moeda BRL, que todas as Chaves têm, não é suspeita
-    assert mostrado[0][:2] == ("Carteira", "Legado")
-    concentracao = {(atributo, valor): c for atributo, valor, _, _, c in gabarito.por_atributo}
-    assert concentracao[("Moeda", "BRL")] == pytest.approx(1, abs=0.001)
-    assert concentracao[("Carteira", "Legado")] > 5
+    concentracao = {(atributo, valor): c for atributo, valor, _, c in gabarito.por_atributo}
+    assert concentracao[("Moeda", "BRL")] == pytest.approx(0, abs=0.001)
+    assert concentracao[("Carteira", "Legado")] == max(concentracao.values())
 
 
 def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path, capsys):
@@ -539,7 +522,7 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert abas_visiveis(wb) == ABAS
     assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [
-        ["Atributo", "Valor", "Diferença", "% da Diferença"]
+        ["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"]
     ]
 
 

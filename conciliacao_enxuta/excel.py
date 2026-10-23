@@ -70,15 +70,6 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
 
     # Avisos, só quando acontecem, a partir de uma linha abaixo das faixas
     linha += 2
-    if resultado.abertas_desde_a_primeira:
-        primeira = resultado.historico[0][0]
-        ws.cell(
-            linha,
-            1,
-            f"Chaves com Diferença desde a primeira Data-base ({primeira:%d/%m/%Y}) ou antes: "
-            f"{resultado.abertas_desde_a_primeira}. A Diferença delas pode ser ainda mais antiga.",
-        )
-        linha += 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
         for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)
@@ -154,19 +145,19 @@ def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 
 
 def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
-    """Onde a Diferença se concentra, já na ordem do Resultado (a Concentração); sem filtro.
+    """Onde a Diferença se concentra, já na ordem do Resultado (a Diferença absoluta); sem filtro.
 
     Sem Atributo nas bases, fica só o cabeçalho.
     """
     ws = wb.create_sheet("Por Atributo")
-    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença", "% da Diferença"], start=1):
+    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença", "% da Diferença − % do Total"], start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
-    linhas = resultado.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").iter_rows()
-    for linha, (atributo, valor, diferenca, parte) in enumerate(linhas, start=2):
+    linhas = resultado.por_atributo.iter_rows()
+    for linha, (atributo, valor, diferenca, concentracao) in enumerate(linhas, start=2):
         ws.cell(linha, 1, atributo)
         ws.cell(linha, 2, valor)
         ws.cell(linha, 3, diferenca / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, 4, parte).number_format = FORMATO_PERCENTUAL
+        ws.cell(linha, 4, concentracao).number_format = FORMATO_PERCENTUAL
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 24
     ws.column_dimensions["C"].width = 20
