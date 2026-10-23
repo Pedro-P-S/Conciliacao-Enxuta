@@ -35,8 +35,9 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
 
+    # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
+    linha = len(quadro) + 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
-        linha = len(quadro) + 2
         for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)
         for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
@@ -44,6 +45,15 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
             ws.cell(linha, 1, base)
             ws.cell(linha, 2, sem_chave.linhas).number_format = FORMATO_INTEIRO
             ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
+        linha += 2
+
+    avisos = [
+        f"Data-bases ignoradas por estarem só na {nome}: {', '.join(f'{d:%d/%m/%Y}' for d in datas)}."
+        for nome, datas in (("Base A", resultado.data_bases_so_em_a), ("Base B", resultado.data_bases_so_em_b))
+        if datas
+    ]
+    for linha, aviso in enumerate(avisos, start=linha):
+        ws.cell(linha, 1, aviso)
 
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 20

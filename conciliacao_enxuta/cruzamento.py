@@ -10,6 +10,10 @@ import polars as pl
 TOLERANCIA_PADRAO = 100  # centavos: R$ 1,00
 
 
+class SemDataBaseComum(Exception):
+    """As duas bases não têm nenhuma Data-base em comum: não há o que cruzar."""
+
+
 @dataclass(frozen=True)
 class SemChave:
     """As linhas de uma base sem Chave, que ficam fora do cruzamento. Soma em centavos."""
@@ -20,7 +24,7 @@ class SemChave:
 
 @dataclass(frozen=True)
 class Resultado:
-    """Os totais da Data-base mais recente. Dinheiro em centavos."""
+    """Os totais da Data-base mais recente e o Histórico da Diferença. Dinheiro em centavos."""
 
     data_base: date
     tolerancia: int
@@ -29,44 +33,65 @@ class Resultado:
     diferenca_total: int
     diferenca_absoluta: int
     chaves_com_diferenca: int
-    sem_chave_a: SemChave
+    sem_chave_a: SemChave  # só nas Data-bases comuns
     sem_chave_b: SemChave
+    data_bases_so_em_a: tuple[date, ...]  # ignoradas por não estarem na Base B
+    data_bases_so_em_b: tuple[date, ...]  # ignoradas por não estarem na Base A
+    historico: tuple[tuple[date, int], ...]  # (Data-base comum, Diferença absoluta), em ordem de data
 
 
-def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, SemChave]:
+def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Separa as linhas sem Chave (vazia ou só espaço) e soma numa só as de mesma Chave e Data-base."""
     sem_chave = pl.col("Chave").str.strip_chars().fill_null("") == ""
     fora = base.filter(sem_chave)
     somadas = base.filter(~sem_chave).group_by("Chave", "Data", maintain_order=True).agg(pl.col("Valor").sum())
-    return somadas, SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
+    return somadas, fora
+
+
+def _sem_chave(fora: pl.DataFrame, comuns: list[date]) -> SemChave:
+    """Conta e soma as linhas sem Chave das Data-bases que entram no cruzamento."""
+    fora = fora.filter(pl.col("Data").is_in(comuns))
+    return SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
 
 
 def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Resultado:
-    """Cruza as bases na Data-base mais recente comum às duas.
+    """Cruza as bases em cada Data-base comum às duas; os totais são os da mais recente.
 
     Antes, a Preparação tira as linhas sem Chave e soma as de mesma Chave e Data-base.
-    Junção completa pela Chave; Diferença = A − B, com o lado que falta valendo 0.
+    Junção completa pela Chave dentro de cada Data-base; Diferença = A − B, com o lado que falta valendo 0.
     Uma Chave tem Diferença quando |Diferença| > Tolerância.
     """
     base_a, sem_chave_a = _preparar(base_a)
     base_b, sem_chave_b = _preparar(base_b)
-    data_base = max(set(base_a["Data"]) & set(base_b["Data"]))
-    a = base_a.filter(pl.col("Data") == data_base).select("Chave", pl.col("Valor").alias("A"))
-    b = base_b.filter(pl.col("Data") == data_base).select("Chave", pl.col("Valor").alias("B"))
+    datas_a, datas_b = set(base_a["Data"]), set(base_b["Data"])
+    comuns = sorted(datas_a & datas_b)
+    if not comuns:
+        raise SemDataBaseComum("A Base A e a Base B não têm nenhuma Data-base em comum.")
+    data_base = comuns[-1]
 
-    cruzado = a.join(b, on="Chave", how="full", coalesce=True).with_columns(
+    a = base_a.filter(pl.col("Data").is_in(comuns)).select("Chave", "Data", pl.col("Valor").alias("A"))
+    b = base_b.filter(pl.col("Data").is_in(comuns)).select("Chave", "Data", pl.col("Valor").alias("B"))
+    cruzado = a.join(b, on=["Chave", "Data"], how="full", coalesce=True).with_columns(
         (pl.col("A").fill_null(0) - pl.col("B").fill_null(0)).alias("Diferenca")
     )
     com_diferenca = cruzado.filter(pl.col("Diferenca").abs() > tolerancia)
 
+    absoluta_por_data = dict(
+        com_diferenca.group_by("Data").agg(pl.col("Diferenca").abs().sum()).iter_rows()
+    )
+    na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
+
     return Resultado(
         data_base=data_base,
         tolerancia=tolerancia,
-        total_a=int(a["A"].sum()),
-        total_b=int(b["B"].sum()),
-        diferenca_total=int(com_diferenca["Diferenca"].sum()),
-        diferenca_absoluta=int(com_diferenca["Diferenca"].abs().sum()),
-        chaves_com_diferenca=com_diferenca.height,
-        sem_chave_a=sem_chave_a,
-        sem_chave_b=sem_chave_b,
+        total_a=int(a.filter(pl.col("Data") == data_base)["A"].sum()),
+        total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()),
+        diferenca_total=int(na_mais_recente["Diferenca"].sum()),
+        diferenca_absoluta=int(na_mais_recente["Diferenca"].abs().sum()),
+        chaves_com_diferenca=na_mais_recente.height,
+        data_bases_so_em_a=tuple(sorted(datas_a - datas_b)),
+        data_bases_so_em_b=tuple(sorted(datas_b - datas_a)),
+        historico=tuple((data, int(absoluta_por_data.get(data, 0))) for data in comuns),
+        sem_chave_a=_sem_chave(sem_chave_a, comuns),
+        sem_chave_b=_sem_chave(sem_chave_b, comuns),
     )
