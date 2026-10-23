@@ -107,6 +107,27 @@ def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha
     assert resumo.max_row < barras_no_resumo.anchor._from.row < linha_no_resumo.anchor._from.row
 
 
+def test_grafico_de_linha_do_resumo_e_uma_linha_so_de_uma_cor_sem_suavizacao(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    linha = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Resumo"]._charts[-1]
+    # Sem varyColors explícito o Excel pinta cada trecho de uma cor
+    assert linha.varyColors is False
+    assert [serie.smooth for serie in linha.series] == [False]
+
+
+def test_titulos_dos_graficos_do_resumo_ficam_acima_da_area_sem_cobri_la(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    graficos = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])["Resumo"]._charts
+    # Sem overlay explícito o Excel desenha o título por cima das barras e da linha
+    assert [grafico.title.overlay for grafico in graficos] == [False, False]
+
+
 def test_rotulo_da_faixa_traz_1_linha_sem_chave_no_singular_e_nao_muda_sem_elas(tmp_path, capsys):
     base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
     # Chave 1 com Diferença de 10,00 e uma linha sem Chave de 5,00 em A, ambas abertas na própria Data-base

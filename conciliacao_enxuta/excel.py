@@ -152,9 +152,13 @@ def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
     linha_no_tempo.title = "Diferença absoluta por Data-base"
     linha_no_tempo.add_data(Reference(dados, min_col=2, min_row=1, max_row=fim_da_linha), titles_from_data=True)
     linha_no_tempo.set_categories(Reference(dados, min_col=1, min_row=2, max_row=fim_da_linha))
+    # Sem isto o Excel pinta cada trecho de uma cor e suaviza a linha
+    linha_no_tempo.varyColors = False
+    linha_no_tempo.series[0].smooth = False
 
     for grafico in (barras, linha_no_tempo):
         grafico.legend = None
+        grafico.title.overlay = False  # sem isto o Excel desenha o título por cima da área do gráfico
         grafico.width, grafico.height = 24, 9
         grafico.y_axis.number_format = FORMATO_REAIS
         # No openpyxl 3.1 os eixos somem no Excel se não forem marcados como visíveis
