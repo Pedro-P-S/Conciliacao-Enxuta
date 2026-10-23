@@ -32,7 +32,7 @@ A soma das Diferenças com sinal. Positivas e negativas se anulam.
 A soma das Diferenças sem sinal. Mede o tamanho do problema, mesmo quando a Diferença total dá perto de zero.
 
 **Concentração**:
-Quanto um valor de Atributo pesa na Diferença absoluta comparado ao quanto pesa no Total. Serve para ordenar; não aparece para o usuário.
+Quanto a parte de um valor de Atributo na Diferença absoluta passa da parte dele no Total: % da Diferença absoluta − % do Total. Perto de zero, o valor só tem a Diferença que o seu peso explica.
 
 **Tolerância**:
 O valor até o qual uma Diferença conta como zero. Padrão de R$ 1,00; o usuário pode mudar.

@@ -512,27 +512,25 @@ def test_bases_sem_atributos_nao_tem_atributos_nas_operacoes():
     assert r.atributos.columns == []
 
 
-def test_valor_de_atributo_com_pouco_peso_e_muita_diferenca_fica_no_topo_por_atributo():
-    # Legado pesa 1.000 de 301.000 no total e tem metade da Diferença absoluta; Atual pesa o resto e tem a outra metade
+def test_por_atributo_ordena_pela_diferenca_absoluta_de_cada_valor():
+    # X tem +30.000 e −30.000: soma 0 com sinal, mas 60.000 de Diferença absoluta
     a = base_com_atributos(
         [
-            ("legado", 1_000, {"Carteira": "Legado"}),
-            ("atual_1", 100_000, {"Carteira": "Atual"}),
-            ("atual_2", 100_000, {"Carteira": "Atual"}),
-            ("atual_3", 100_000, {"Carteira": "Atual"}),
+            ("x1", 100_000, {"Canal": "X"}),
+            ("x2", 100_000, {"Canal": "X"}),
+            ("y", 100_000, {"Canal": "Y"}),
+            ("z", 100_000, {"Canal": "Z"}),
         ]
     )
-    b = base([("legado", 51_000), ("atual_1", 50_000), ("atual_2", 100_000), ("atual_3", 100_000)])
+    b = base([("x1", 70_000), ("x2", 130_000), ("y", 50_000), ("z", 140_000)])
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").rows() == [
-        ("Carteira", "Legado", -50_000, 0.5),
-        ("Carteira", "Atual", 50_000, 0.5),
-    ]
+    assert r.por_atributo.select("Valor", "Diferenca").rows() == [("X", 0), ("Y", 50_000), ("Z", -40_000)]
 
 
-def test_valor_que_todas_as_chaves_tem_tem_concentracao_1_e_fica_abaixo_do_concentrado():
+def test_concentracao_e_a_parte_na_diferenca_absoluta_menos_a_parte_no_total():
+    # Peso total 201.000 e Diferença absoluta 100.000; BRL, que todas as Chaves têm, fica com Concentração 0
     a = base_com_atributos(
         [
             ("legado", 1_000, {"Carteira": "Legado", "Moeda": "BRL"}),
@@ -544,12 +542,15 @@ def test_valor_que_todas_as_chaves_tem_tem_concentracao_1_e_fica_abaixo_do_conce
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").rows() == [
-        ("Carteira", "Legado", -50_000, 0.5),
-        ("Moeda", "BRL", 0, 1.0),
-        ("Carteira", "Atual", 50_000, 0.5),
+    # Atual e Legado empatam na Diferença absoluta: desempata pelo Atributo e pelo Valor
+    assert r.por_atributo.select("Atributo", "Valor", "Diferenca").rows() == [
+        ("Moeda", "BRL", 0),
+        ("Carteira", "Atual", 50_000),
+        ("Carteira", "Legado", -50_000),
     ]
-    assert r.por_atributo["Concentracao"][1] == pytest.approx(1.0)
+    assert r.por_atributo["Concentracao"].to_list() == pytest.approx(
+        [1 - 1, 0.5 - 200_000 / 201_000, 0.5 - 1_000 / 201_000]
+    )
 
 
 def test_peso_no_total_e_o_valor_a_absoluto_e_cai_para_o_valor_b_quando_a_e_zero():
@@ -571,9 +572,9 @@ def test_peso_no_total_e_o_valor_a_absoluto_e_cai_para_o_valor_b_quando_a_e_zero
 
     r = conciliar(a, b, tolerancia=100)
 
-    # Peso total 110.000 e Diferença absoluta 70.000: Z = (50/70) ÷ (10/110) e X = (20/70) ÷ (20/110)
+    # Peso total 110.000 e Diferença absoluta 70.000: Z = 50/70 − 10/110 e X = 20/70 − 20/110
     assert r.por_atributo.select("Valor", "Diferenca").rows() == [("Z", -50_000), ("X", -20_000)]
-    assert r.por_atributo["Concentracao"].to_list() == pytest.approx([55 / 7, 11 / 7])
+    assert r.por_atributo["Concentracao"].to_list() == pytest.approx([50 / 70 - 10 / 110, 20 / 70 - 20 / 110])
 
 
 def test_por_atributo_so_tem_os_valores_com_alguma_chave_com_diferenca():
@@ -589,4 +590,4 @@ def test_por_atributo_so_tem_os_valores_com_alguma_chave_com_diferenca():
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.por_atributo.select("Valor", "Diferenca", "Parte").rows() == [("Crédito", 10_000, 1.0)]
+    assert r.por_atributo.select("Valor", "Diferenca").rows() == [("Crédito", 10_000)]

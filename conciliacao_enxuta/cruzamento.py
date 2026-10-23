@@ -63,9 +63,9 @@ class Resultado:
     por_tipo: pl.DataFrame
     # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
     por_idade: tuple[tuple[str, int, int], ...]
-    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal),
-    # Parte (fração da Diferença absoluta) e Concentracao (Parte ÷ fração do peso no total), por Concentracao
-    # decrescente. O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
+    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal)
+    # e Concentracao (fração da Diferença absoluta − fração do peso no total), por Diferença absoluta decrescente.
+    # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
 
 
@@ -202,7 +202,6 @@ def _por_atributo(
             "Atributo": pl.String,
             "Valor": pl.String,
             "Diferenca": pl.Int64,
-            "Parte": pl.Float64,
             "Concentracao": pl.Float64,
         }
     )
@@ -220,9 +219,8 @@ def _por_atributo(
             pl.col("Diferenca").is_not_null().any().alias("ComDiferenca"),
         )
         .filter("ComDiferenca")
-        .with_columns((pl.col("Absoluta") / absoluta_total).alias("Parte"))
-        .with_columns((pl.col("Parte") / (pl.col("Peso") / peso_total)).alias("Concentracao"))
-        .sort(["Concentracao", "Atributo", "Valor"], descending=[True, False, False])
+        .with_columns((pl.col("Absoluta") / absoluta_total - pl.col("Peso") / peso_total).alias("Concentracao"))
+        .sort(["Absoluta", "Atributo", "Valor"], descending=[True, False, False])
         .select(vazia.columns)
     )
 
