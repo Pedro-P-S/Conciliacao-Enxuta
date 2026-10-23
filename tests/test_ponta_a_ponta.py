@@ -332,12 +332,16 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     linhas = list(ws.iter_rows())
     assert [c.value for c in linhas[0]] == [
-        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto", "Carteira", "Moeda",
-        "Filial",
+        "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Produto", "Carteira",
+        "Moeda", "Filial",
     ]
+    # Valor A e Valor B com o sinal; a Diferença absoluta sem sinal
     assert [tuple(c.value for c in linha[:5]) for linha in linhas[1:]] == [
-        (chave, a / 100, b / 100, d / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
+        (chave, a / 100, b / 100, abs(d) / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
     ]
+    assert any(d < 0 for _, _, _, d, _ in gabarito.operacoes)
+    sinal_invertido = [linha for linha in linhas[1:] if linha[4].value == "Sinal invertido"]
+    assert sinal_invertido and all(linha[1].value * linha[2].value < 0 for linha in sinal_invertido)
     assert len(linhas) - 1 == gabarito.chaves_com_diferenca
     assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:4])
     assert ws.freeze_panes == "A2"
@@ -487,7 +491,9 @@ def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, cap
     main(["conciliar", str(base_a), str(base_b)])
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
-    assert [c.value for c in ws[1]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    assert [c.value for c in ws[1]] == [
+        "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde"
+    ]
     assert ws.auto_filter.ref == "A1:F2"
 
 
@@ -552,7 +558,7 @@ def test_acima_do_limite_a_aba_mostra_as_maiores_com_o_aviso_na_linha_1(tmp_path
     ws = openpyxl.load_workbook(caminho)["Operações com Diferença"]
     assert ws["A1"].value == aviso
     assert [c.value for c in ws[2]] == [
-        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto"
+        "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Produto"
     ]
     linhas = list(ws.iter_rows(min_row=3, values_only=True))
     assert [(chave, diferenca, produto) for chave, _, _, diferenca, _, _, produto in linhas] == [

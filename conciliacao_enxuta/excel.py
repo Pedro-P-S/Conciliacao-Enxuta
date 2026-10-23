@@ -177,14 +177,15 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
         linha_do_cabecalho = 2
     # Operações e Atributos se alinham pela ordem das linhas: cortam juntos
     operacoes, atributos = resultado.operacoes.head(limite), resultado.atributos.head(limite)
-    titulos = ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    titulos = ["Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde"]
     primeiro_atributo = len(titulos) + 1
     titulos += atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
         ws.cell(linha, 1, chave)
-        for coluna, centavos in enumerate((a, b, diferenca), start=2):
+        # Valor A e Valor B com o sinal; a Diferença sem
+        for coluna, centavos in enumerate((a, b, abs(diferenca)), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 5, tipo)
         ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
