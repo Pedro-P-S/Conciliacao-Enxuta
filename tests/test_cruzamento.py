@@ -371,3 +371,79 @@ def test_tolerancia_e_folga_no_sinal_invertido_no_duplicado_e_na_virgula_desloca
         "quase_virgula": "Vírgula deslocada",
         "virgula_fora": "Sem padrão",
     }
+
+
+def base_com_atributos(linhas: list[tuple[str, int, dict[str, str | None]]], data: date = DIA) -> pl.DataFrame:
+    """Base lida com Atributos em texto: (Chave, Valor, {Atributo: valor})."""
+    nomes = list(dict.fromkeys(nome for _, _, atributos in linhas for nome in atributos))
+    return pl.DataFrame(
+        {
+            "Chave": [c for c, _, _ in linhas],
+            "Data": [data] * len(linhas),
+            "Valor": [v for _, v, _ in linhas],
+            **{nome: [atributos.get(nome) for _, _, atributos in linhas] for nome in nomes},
+        },
+        schema={"Chave": pl.String, "Data": pl.Date, "Valor": pl.Int64, **{nome: pl.String for nome in nomes}},
+    )
+
+
+def test_atributo_vem_de_a_e_se_vazio_ou_ausente_vem_de_b():
+    a = base_com_atributos(
+        [
+            ("cheio_em_a", 30_000, {"Produto": "Crédito", "Filial": "01"}),
+            ("vazio_em_a", 20_000, {"Produto": None, "Filial": "02"}),
+            ("so_em_a", 10_000, {"Produto": "Câmbio", "Filial": "03"}),
+        ]
+    )
+    b = base_com_atributos(
+        [
+            ("cheio_em_a", 0, {"Produto": "Débito", "Canal": "Agência"}),
+            ("vazio_em_a", 0, {"Produto": "Seguro", "Canal": None}),
+            ("so_em_b", 40_000, {"Produto": "Consórcio", "Canal": "App"}),
+        ]
+    )
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes["Chave"].to_list() == ["so_em_b", "cheio_em_a", "vazio_em_a", "so_em_a"]
+    # Todos os Atributos, primeiro os de A e depois os só de B, sem repetir nomes iguais
+    assert r.atributos.columns == ["Produto", "Filial", "Canal"]
+    assert r.atributos.rows() == [
+        ("Consórcio", None, "App"),
+        ("Crédito", "01", "Agência"),
+        ("Seguro", "02", None),
+        ("Câmbio", "03", None),
+    ]
+
+
+def test_chave_repetida_na_mesma_data_base_fica_com_os_atributos_da_primeira_linha():
+    a = base_com_atributos(
+        [("1", 10_000, {"Produto": "primeira"}), ("1", 5_000, {"Produto": "segunda"}), ("2", 700, {"Produto": "x"})]
+    )
+    b = base([("1", 0)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.operacoes.select("Chave", "A").rows() == [("1", 15_000), ("2", 700)]
+    assert r.atributos["Produto"].to_list() == ["primeira", "x"]
+
+
+def test_atributos_sao_os_da_data_base_mais_recente():
+    a = pl.concat(
+        [
+            base_com_atributos([("1", 10_000, {"Produto": "antigo"})], date(2026, 9, 29)),
+            base_com_atributos([("1", 10_000, {"Produto": "atual"})]),
+        ]
+    )
+    b = pl.concat([base([("1", 0)], date(2026, 9, 29)), base([("1", 0)])])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.atributos["Produto"].to_list() == ["atual"]
+
+
+def test_bases_sem_atributos_nao_tem_atributos_nas_operacoes():
+    r = conciliar(base([("1", 10_000)]), base([("1", 0)]), tolerancia=100)
+
+    assert r.operacoes.height == 1
+    assert r.atributos.columns == []

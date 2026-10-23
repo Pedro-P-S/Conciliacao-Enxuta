@@ -47,6 +47,9 @@ class Resultado:
     # e OuAntes (o Aberta desde é a primeira Data-base comum), por |Diferença| decrescente.
     # O lado ausente vale 0. É DataFrame porque a lista pode ter centenas de milhares de linhas.
     operacoes: pl.DataFrame
+    # Os Atributos de cada linha de `operacoes`, na mesma ordem, com o nome original: primeiro os de A, depois
+    # os só de B. Ficam fora de `operacoes` para um Atributo poder se chamar, por exemplo, Tipo.
+    atributos: pl.DataFrame
     abertas_desde_a_primeira: int  # as Chaves com OuAntes
     # Por Tipo do Erro: Tipo, Chaves e Absoluta (soma das |Diferença|), por Absoluta decrescente.
     # Uma Chave com mais de um Tipo conta em cada um.
@@ -54,10 +57,17 @@ class Resultado:
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Separa as linhas sem Chave (vazia ou só espaço) e soma numa só as de mesma Chave e Data-base."""
+    """Separa as linhas sem Chave (vazia ou só espaço) e soma numa só as de mesma Chave e Data-base.
+
+    Os Atributos das linhas somadas vêm da primeira.
+    """
     sem_chave = pl.col("Chave").str.strip_chars().fill_null("") == ""
     fora = base.filter(sem_chave)
-    somadas = base.filter(~sem_chave).group_by("Chave", "Data", maintain_order=True).agg(pl.col("Valor").sum())
+    somadas = (
+        base.filter(~sem_chave)
+        .group_by("Chave", "Data", maintain_order=True)
+        .agg(pl.col("Valor").sum(), pl.exclude("Chave", "Data", "Valor").first())
+    )
     return somadas, fora
 
 
@@ -124,6 +134,26 @@ def _aberta_desde(com_diferenca: pl.DataFrame, comuns: list[date]) -> pl.DataFra
     )
 
 
+def _atributos(chaves: pl.DataFrame, base_a: pl.DataFrame, base_b: pl.DataFrame) -> pl.DataFrame:
+    """Os Atributos de cada Chave, na ordem de `chaves`: o de A e, se vazio ou ausente, o de B.
+
+    `base_a` e `base_b` são as bases preparadas (uma linha por Chave) na Data-base mais recente.
+    """
+    de_a, de_b = (
+        chaves.join(base.drop("Data", "Valor"), on="Chave", how="left", maintain_order="left").drop("Chave")
+        for base in (base_a, base_b)
+    )
+    colunas = []
+    for nome in dict.fromkeys(de_a.columns + de_b.columns):
+        if nome not in de_a.columns:
+            colunas.append(de_b[nome])
+        elif nome not in de_b.columns:
+            colunas.append(de_a[nome])
+        else:
+            colunas.append(de_a[nome].fill_null(de_b[nome]))
+    return pl.DataFrame(colunas)
+
+
 def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
     """Uma linha por Tipo presente, com as Chaves e a Diferença absoluta; a Chave conta em cada Tipo que tem."""
     return (
@@ -183,6 +213,11 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         sem_chave_a=_sem_chave(sem_chave_a, comuns),
         sem_chave_b=_sem_chave(sem_chave_b, comuns),
         operacoes=operacoes,
+        atributos=_atributos(
+            operacoes.select("Chave"),
+            base_a.filter(pl.col("Data") == data_base),
+            base_b.filter(pl.col("Data") == data_base),
+        ),
         abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),
         por_tipo=_por_tipo(operacoes),
     )

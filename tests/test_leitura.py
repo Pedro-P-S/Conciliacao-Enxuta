@@ -155,3 +155,36 @@ def test_erros_de_leitura_valem_tambem_para_xlsx_e_parquet(tmp_path):
     pl.DataFrame({"Chave": ["1", "2"], "Data": [date(2026, 9, 30), None], "Valor": [1.0, 2.0]}).write_parquet(parquet)
     with pytest.raises(ErroDeLeitura, match=r"^base_b\.parquet, linha 2: Data vazia\.$"):
         ler_base(parquet)
+
+
+def test_colunas_extras_viram_atributos_em_texto_com_o_nome_original(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(
+        "Produto;CHAVE;Data;Valor;Região;filial\n"
+        "Crédito; 1 ;30/09/2026;10,00;Sul;0101\n"
+        ";2;30/09/2026;20,00;   ;0102\n",
+        encoding="utf-8-sig",
+    )
+
+    base = ler_base(caminho)
+
+    assert base.columns == ["Chave", "Data", "Valor", "Produto", "Região", "filial"]
+    assert base["Produto"].to_list() == ["Crédito", None]
+    assert base["Região"].to_list() == ["Sul", None]  # só espaço é vazio
+    assert base["filial"].to_list() == ["0101", "0102"]  # texto: o zero à esquerda fica
+
+
+def test_atributo_numerico_ou_data_no_xlsx_vira_texto(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Chave", "Data", "Valor", "Filial", "Conta"])
+    ws.append(["1", date(2026, 9, 30), 10, 101, None])
+    ws.append(["2", date(2026, 9, 30), 20, 102, "1.1.01"])
+    wb.save(caminho)
+
+    base = ler_base(caminho)
+
+    assert base.schema["Filial"] == base.schema["Conta"] == pl.String
+    assert base["Filial"].to_list() == ["101", "102"]
+    assert base["Conta"].to_list() == [None, "1.1.01"]

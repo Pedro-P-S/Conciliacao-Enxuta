@@ -7,6 +7,7 @@ from pathlib import Path
 import openpyxl
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 from conciliacao_enxuta.cruzamento import Resultado
 
@@ -120,9 +121,14 @@ def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 
 
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
-    """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro."""
+    """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro.
+
+    Depois do Aberta desde vêm os Atributos, com o nome original.
+    """
     ws = wb.create_sheet("Operações com Diferença")
     titulos = ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    primeiro_atributo = len(titulos) + 1
+    titulos += resultado.atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
     for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(resultado.operacoes.iter_rows(), start=2):
@@ -131,8 +137,12 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 5, tipo)
         ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
+    for coluna, atributo in enumerate(resultado.atributos.iter_columns(), start=primeiro_atributo):
+        for linha, valor in enumerate(atributo, start=2):
+            ws.cell(linha, coluna, valor)
+        ws.column_dimensions[get_column_letter(coluna)].width = 18
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:F{resultado.operacoes.height + 1}"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(titulos))}{resultado.operacoes.height + 1}"
     ws.column_dimensions["A"].width = 24
     for letra in "BCD":
         ws.column_dimensions[letra].width = 18

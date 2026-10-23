@@ -1,4 +1,4 @@
-"""Leitura de uma base: arquivo → DataFrame com Chave, Data e Valor em centavos.
+"""Leitura de uma base: arquivo → DataFrame com Chave, Data, Valor em centavos e os Atributos em texto.
 
 O `.csv` é lido todo como texto. O `.xlsx` e o `.parquet` mantêm os tipos nativos: número segue número
 (um `2.125` numérico vale R$ 2,13, e não vira milhar) e data segue data.
@@ -88,10 +88,17 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
 
 
-def _chave_em_texto(tipo: pl.DataType) -> pl.Expr:
-    """Chave numérica vira texto sem `.0` no fim (`123.0` → `123`)."""
-    chave = pl.col("Chave").cast(pl.String)
-    return chave.str.replace(r"\.0$", "") if tipo.is_float() else chave
+def _em_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
+    """Coluna em texto, sem espaço nas pontas; número sem `.0` no fim (`123.0` → `123`)."""
+    texto = pl.col(coluna).cast(pl.String)
+    texto = texto.str.replace(r"\.0$", "") if tipo.is_float() else texto
+    return texto.str.strip_chars()
+
+
+def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
+    """Atributo em texto, com o nome que veio no arquivo (só sem o BOM); valor só com espaço é vazio."""
+    texto = _em_texto(coluna, tipo)
+    return pl.when(texto != "").then(texto).alias(coluna.lstrip("\ufeff"))
 
 
 def _data_de(tipo: pl.DataType) -> pl.Expr:
@@ -116,6 +123,8 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
 def ler_base(caminho: str | Path) -> pl.DataFrame:
     """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
 
+    Toda outra coluna é Atributo, em texto e com o nome que veio no arquivo (vazio vira nulo).
+
     Data em `DD/MM/AAAA`, `AAAA-MM-DD`, data do Excel ou data nativa; Valor numérico ou no formato
     brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
     """
@@ -129,9 +138,10 @@ def ler_base(caminho: str | Path) -> pl.DataFrame:
         falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
         raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
     base = df.select(
-        _chave_em_texto(df.schema["Chave"]).str.strip_chars(),
+        _em_texto("Chave", df.schema["Chave"]),
         _data_de(df.schema["Data"]),
         _centavos_de(df.schema["Valor"]),
+        *(_atributo(c, tipo) for c, tipo in df.schema.items() if c not in COLUNAS),
     )
     # Um Valor ou uma Data que não pôde ser lido não pode sumir do cruzamento sem aviso.
     # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; o `.parquet` não tem cabeçalho.

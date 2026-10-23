@@ -2,6 +2,7 @@
 
 As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar pelo cruzamento.
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
+A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import random
+import re
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -40,6 +42,8 @@ PAUSAS = {
     "C00051": (PRIMEIRA_DATA_BASE, date(2026, 7, 31), 0),  # só abre depois: 03/08/2026
 }
 
+PRODUTOS = ("Crédito", "Débito", "Câmbio", "Seguro")
+
 
 @dataclass(frozen=True)
 class Gabarito:
@@ -61,6 +65,7 @@ class Gabarito:
     operacoes: tuple[tuple[str, int, int, int, str], ...]
     aberta_desde: dict[str, date]  # das Chaves das operações
     abertas_desde_a_primeira: int
+    atributos: dict[str, dict[str, str | None]]  # das Chaves das operações: {Chave: {Atributo: valor}}
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
 
 
@@ -96,27 +101,42 @@ def _linhas_da_base(
     return linhas + segundas + sem_chave
 
 
-def _escrever_csv(caminho: Path, cabecalho: list[str], linhas: list[list[str]]) -> None:
-    """`.csv` separado por `;` e com BOM, como o Excel salva no Brasil."""
+def _atributos_plantados(chave: str) -> tuple[str | None, str | None, str | None]:
+    """(Produto em A, Produto em B, Filial em B) da Chave.
+
+    O Produto fica vazio em A nas Chaves múltiplas de 7.
+    As órfãs dentro da Tolerância e as linhas sem Chave não têm Atributo.
+    """
+    if not re.fullmatch(r"C\d{5}", chave):
+        return None, None, None
+    i = int(chave[1:])
+    produto = PRODUTOS[i % len(PRODUTOS)]
+    return (None if i % 7 == 0 else produto), produto, f"{i % 5 + 1:02d}"
+
+
+def _escrever_csv(caminho: Path, cabecalho: list[str], linhas: list[list[str | None]]) -> None:
+    """`.csv` separado por `;` e com BOM, como o Excel salva no Brasil; vazio é campo vazio."""
     with caminho.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(cabecalho)
-        w.writerows(linhas)
+        w.writerows([["" if campo is None else campo for campo in linha] for linha in linhas])
 
 
-def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple[str, date, int]]) -> None:
-    """`.xlsx` ou `.parquet` como o sistema exporta: Data como data e Valor como número em reais."""
+def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple]) -> None:
+    """`.xlsx` ou `.parquet` como o sistema exporta: Data como data, Valor como número em reais e Atributos em texto.
+
+    Cada linha é (Chave, Data, Valor em centavos, *Atributos).
+    """
+    linhas = [(chave, data, valor / 100, *atributos) for chave, data, valor, *atributos in linhas]
     if caminho.suffix == ".parquet":
-        chaves, datas, valores = zip(*linhas)
-        pl.DataFrame(
-            {cabecalho[0]: chaves, cabecalho[1]: datas, cabecalho[2]: [v / 100 for v in valores]}
-        ).write_parquet(caminho)
+        colunas = list(zip(*linhas))
+        pl.DataFrame({nome: list(coluna) for nome, coluna in zip(cabecalho, colunas)}).write_parquet(caminho)
         return
     wb = openpyxl.Workbook(write_only=True)
     ws = wb.create_sheet()
     ws.append(cabecalho)
-    for chave, data, valor in linhas:
-        ws.append([chave, data, valor / 100])
+    for linha in linhas:
+        ws.append(list(linha))
     wb.save(caminho)
 
 
@@ -245,22 +265,26 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
     # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato.
     # As linhas sem Chave vão na Data-base mais recente; a Base B as repete na Data-base ignorada, onde não contam.
-    cabecalho_a, cabecalho_b = ["CHAVE", "data", "Valor "], [" Chave", "DATA", "VALOR"]
+    cabecalho_a, cabecalho_b = ["CHAVE", "data", "Valor ", "Produto"], [" Chave", "DATA", "VALOR", "Produto", "Filial"]
     linhas_a = [
-        (chave, data, valor)
+        (chave, data, valor, _atributos_plantados(chave)[0])
         for data, valores in posicoes_a.items()
         for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A if data == DATA_BASE else [])
     ]
     linhas_b = [
-        (f" {chave} ", data, valor)
+        (f" {chave} ", data, valor, *_atributos_plantados(chave)[1:])
         for data, valores in posicoes_b.items()
         for chave, valor in _linhas_da_base(
             valores, REPETIDAS_B, SEM_CHAVE_B if data in (DATA_BASE, SO_NA_BASE_B) else []
         )
     ]
     if formato == "csv":
-        _escrever_csv(base_a, cabecalho_a, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v)] for c, d, v in linhas_a])
-        _escrever_csv(base_b, cabecalho_b, [[c, _data_do_excel(d), _reais_sem_milhar(v)] for c, d, v in linhas_b])
+        _escrever_csv(
+            base_a, cabecalho_a, [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
+        )
+        _escrever_csv(
+            base_b, cabecalho_b, [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
+        )
     else:
         _escrever_nativo(base_a, cabecalho_a, linhas_a)
         _escrever_nativo(base_b, cabecalho_b, linhas_b)
@@ -286,7 +310,17 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         por_tipo=_por_tipo(diferencas, tipos),
         aberta_desde=aberta_desde,
         abertas_desde_a_primeira=sum(desde == PRIMEIRA_DATA_BASE for desde in aberta_desde.values()),
+        atributos={chave: _atributos_da_operacao(chave, chave in a, chave in b) for chave in diferencas},
     )
+
+
+def _atributos_da_operacao(chave: str, em_a: bool, em_b: bool) -> dict[str, str | None]:
+    """Produto de A ou, se vazio ou ausente, de B; a Filial só existe em B."""
+    produto_a, produto_b, filial = _atributos_plantados(chave)
+    return {
+        "Produto": (produto_a if em_a else None) or (produto_b if em_b else None),
+        "Filial": filial if em_b else None,
+    }
 
 
 if __name__ == "__main__":
