@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import openpyxl
+import polars as pl
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
@@ -96,11 +97,6 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     avisos = []
     if resultado.rejeitadas.height:
         avisos.append(f"Linhas rejeitadas: {_milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
-    avisos += [
-        f"Data-bases ignoradas por estarem só na {nome}: {', '.join(f'{d:%d/%m/%Y}' for d in datas)}."
-        for nome, datas in (("Base A", resultado.data_bases_so_em_a), ("Base B", resultado.data_bases_so_em_b))
-        if datas
-    ]
     aviso_de_corte = None
     if resultado.operacoes.height > limite:
         aviso_de_corte = _aviso_de_corte(limite, resultado.operacoes.height)
@@ -235,13 +231,26 @@ def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, avi
 
 
 def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None:
-    """As Linhas rejeitadas da Base A e depois da Base B, na ordem do arquivo; cabeçalho congelado e com filtro.
+    """As Data-bases ignoradas, em ordem de data, e depois as Linhas rejeitadas da Base A e da Base B, na ordem do
+    arquivo; cabeçalho congelado e com filtro.
 
     Existe sempre: sem erros, fica só o cabeçalho. Mostra só os `limite` primeiros; quando há corte, o aviso vai
     na linha 1 e o cabeçalho passa para a linha 2.
     """
     ws = wb.create_sheet("Erros")
-    erros = resultado.rejeitadas
+    ignoradas = sorted(
+        [(d, "Base A") for d in resultado.data_bases_so_em_a] + [(d, "Base B") for d in resultado.data_bases_so_em_b]
+    )
+    # A Data vai como texto, como a das Linhas rejeitadas, para a coluna ter um tipo só
+    data_bases = pl.DataFrame(
+        {
+            "Base": [base for _, base in ignoradas],
+            "Data": [f"{d:%d/%m/%Y}" for d, _ in ignoradas],
+            "Motivo": [f"Data-base só na {base}" for _, base in ignoradas],
+        },
+        schema={"Base": pl.String, "Data": pl.String, "Motivo": pl.String},
+    )
+    erros = pl.concat([data_bases, resultado.rejeitadas], how="diagonal").select(resultado.rejeitadas.columns)
     linha_do_cabecalho = 1
     if erros.height > limite:
         aviso = f"Nem todos os erros couberam: mostrando {_milhar(limite)} de {_milhar(erros.height)}."
