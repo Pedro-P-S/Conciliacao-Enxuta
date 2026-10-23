@@ -41,7 +41,7 @@ Por enquanto usa o `.venv` do projeto grande; não instale nem atualize pacotes 
 
 ## Agentes
 
-O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`. Aqui não há guardião da documentação.
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`.
 
 ## Agent skills
 
