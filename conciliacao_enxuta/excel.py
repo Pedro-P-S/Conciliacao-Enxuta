@@ -17,6 +17,7 @@ FORMATO_DATA = "DD/MM/YYYY"
 # A célula continua data, para ordenar e filtrar; só o que o Excel mostra ganha o " ou antes".
 FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
+FORMATO_PERCENTUAL = "0.00%"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 
 
@@ -84,6 +85,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
     ws.column_dimensions["C"].width = 20
 
     _aba_por_tipo(wb, resultado)
+    _aba_por_atributo(wb, resultado)
     _aba_operacoes(wb, resultado)
     _grafico_da_diferenca(wb, ws, resultado)
 
@@ -128,6 +130,26 @@ def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 12
     ws.column_dimensions["C"].width = 20
+
+
+def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
+    """Onde a Diferença se concentra, já na ordem do Resultado (a Concentração); sem filtro.
+
+    Sem Atributo nas bases, fica só o cabeçalho.
+    """
+    ws = wb.create_sheet("Por Atributo")
+    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença", "% da Diferença"], start=1):
+        ws.cell(1, coluna, titulo).font = Font(bold=True)
+    linhas = resultado.por_atributo.select("Atributo", "Valor", "Diferenca", "Parte").iter_rows()
+    for linha, (atributo, valor, diferenca, parte) in enumerate(linhas, start=2):
+        ws.cell(linha, 1, atributo)
+        ws.cell(linha, 2, valor)
+        ws.cell(linha, 3, diferenca / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, 4, parte).number_format = FORMATO_PERCENTUAL
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 16
 
 
 def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:

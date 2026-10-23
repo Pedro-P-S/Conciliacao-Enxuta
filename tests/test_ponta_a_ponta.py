@@ -9,6 +9,8 @@ from conciliacao_enxuta.cli import main
 from conciliacao_enxuta.exemplo import gerar_bases_exemplo
 
 FORMATO_REAIS = "#,##0.00"
+FORMATO_PERCENTUAL = "0.00%"
+ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença"]
 
 
 def ler_resumo(caminho) -> dict:
@@ -25,7 +27,7 @@ def test_cli_gera_o_excel_com_o_resumo_do_gabarito_na_pasta_da_base_a(tmp_path, 
     esperado = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
     assert codigo == 0
     assert capsys.readouterr().out.strip() == str(esperado)
-    assert abas_visiveis(openpyxl.load_workbook(esperado)) == ["Resumo", "Por Tipo do Erro", "Operações com Diferença"]
+    assert abas_visiveis(openpyxl.load_workbook(esperado)) == ABAS
 
     conferir_quadro_do_resumo(esperado, gabarito)
 
@@ -56,7 +58,7 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
 
     wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
     assert wb["_grafico"].sheet_state == "hidden"
-    assert abas_visiveis(wb) == ["Resumo", "Por Tipo do Erro", "Operações com Diferença"]
+    assert abas_visiveis(wb) == ABAS
     linhas = list(wb["_grafico"].iter_rows(values_only=True))
     assert linhas[0] == ("Data-base", "Diferença absoluta")
     assert linhas[1:] == [
@@ -327,7 +329,8 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     linhas = list(ws.iter_rows())
     assert [c.value for c in linhas[0]] == [
-        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto", "Filial"
+        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto", "Carteira", "Moeda",
+        "Filial",
     ]
     assert [tuple(c.value for c in linha[:5]) for linha in linhas[1:]] == [
         (chave, a / 100, b / 100, d / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
@@ -335,7 +338,7 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
     assert len(linhas) - 1 == gabarito.chaves_com_diferenca
     assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:4])
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == f"A1:H{gabarito.chaves_com_diferenca + 1}"
+    assert ws.auto_filter.ref == f"A1:J{gabarito.chaves_com_diferenca + 1}"
 
 
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
@@ -476,16 +479,17 @@ def test_operacoes_mostram_os_atributos_com_o_nome_do_arquivo_e_o_valor_de_b_qua
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     cabecalho = [c.value for c in ws[1]]
-    assert cabecalho[6:] == ["Produto", "Filial"]
+    assert cabecalho[6:] == ["Produto", "Carteira", "Moeda", "Filial"]
     mostrado = {
         linha[0]: dict(zip(cabecalho[6:], linha[6:])) for linha in ws.iter_rows(min_row=2, values_only=True)
     }
     assert mostrado == gabarito.atributos
-    # Produto vazio em A vem de B; a Filial só existe em B; a Chave só em A com Produto vazio fica sem nada
-    assert mostrado["C00021"] == {"Produto": "Débito", "Filial": "02"}
-    assert mostrado["C00004"] == {"Produto": "Crédito", "Filial": "05"}  # Só em B
-    assert mostrado["C00063"] == {"Produto": None, "Filial": None}  # Só em A
-    assert mostrado["C00013"] == {"Produto": "Débito", "Filial": None}  # Só em A
+    # Produto vazio em A vem de B; a Filial só existe em B; a Chave só em A com Produto vazio fica sem ele
+    produto_e_filial = {chave: (at["Produto"], at["Filial"]) for chave, at in mostrado.items()}
+    assert produto_e_filial["C00021"] == ("Débito", "02")
+    assert produto_e_filial["C00004"] == ("Crédito", "05")  # Só em B
+    assert produto_e_filial["C00063"] == (None, None)  # Só em A
+    assert produto_e_filial["C00013"] == ("Débito", None)  # Só em A
 
 
 def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, capsys):
@@ -498,3 +502,39 @@ def test_bases_sem_atributos_as_operacoes_terminam_em_aberta_desde(tmp_path, cap
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     assert [c.value for c in ws[1]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
     assert ws.auto_filter.ref == "A1:F2"
+
+
+def test_por_atributo_mostra_no_topo_o_valor_concentrado_e_abaixo_o_que_todas_as_chaves_tem(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Atributo"]
+    linhas = list(ws.iter_rows())
+    assert [c.value for c in linhas[0]] == ["Atributo", "Valor", "Diferença", "% da Diferença"]
+    mostrado = [tuple(c.value for c in linha) for linha in linhas[1:]]
+    assert [linha[:3] for linha in mostrado] == [
+        (atributo, valor, diferenca / 100) for atributo, valor, diferenca, _, _ in gabarito.por_atributo
+    ]
+    assert [linha[3] for linha in mostrado] == pytest.approx([parte for _, _, _, parte, _ in gabarito.por_atributo])
+    assert all(linha[2].number_format == FORMATO_REAIS and linha[3].number_format == FORMATO_PERCENTUAL for linha in linhas[1:])
+    assert ws.auto_filter.ref is None
+    # A Carteira Legado tem pouco peso no total e muita Diferença; a Moeda BRL, que todas as Chaves têm, não é suspeita
+    assert mostrado[0][:2] == ("Carteira", "Legado")
+    concentracao = {(atributo, valor): c for atributo, valor, _, _, c in gabarito.por_atributo}
+    assert concentracao[("Moeda", "BRL")] == pytest.approx(1, abs=0.001)
+    assert concentracao[("Carteira", "Legado")] > 5
+
+
+def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,90.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.strip())
+    assert abas_visiveis(wb) == ABAS
+    assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [
+        ["Atributo", "Valor", "Diferença", "% da Diferença"]
+    ]

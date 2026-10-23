@@ -64,6 +64,10 @@ class Resultado:
     por_tipo: pl.DataFrame
     # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
     por_idade: tuple[tuple[str, int, int], ...]
+    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal),
+    # Parte (fração da Diferença absoluta) e Concentracao (Parte ÷ fração do peso no total), por Concentracao
+    # decrescente. O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
+    por_atributo: pl.DataFrame
 
 
 def _preparar(base: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -175,6 +179,52 @@ def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _por_atributo(
+    na_data_base: pl.DataFrame, base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int
+) -> pl.DataFrame:
+    """Onde a Diferença se concentra, descontado o peso que cada valor de Atributo já tem no total.
+
+    `na_data_base` são todas as Chaves cruzadas na Data-base mais recente; `base_a` e `base_b`, as bases preparadas
+    nela, de onde vêm os Atributos.
+    """
+    atributos = _atributos(na_data_base.select("Chave"), base_a, base_b)
+    a, b = pl.col("A").fill_null(0), pl.col("B").fill_null(0)
+    chaves = na_data_base.select(
+        pl.when(a != 0).then(a).otherwise(b).abs().alias("Peso"),
+        # Só a Diferença acima da Tolerância conta; dentro dela, fica nula
+        pl.when(pl.col("Diferenca").abs() > tolerancia).then(pl.col("Diferenca")).alias("Diferenca"),
+    )
+    peso_total, absoluta_total = chaves["Peso"].sum(), chaves["Diferenca"].abs().sum()
+    vazia = pl.DataFrame(
+        schema={
+            "Atributo": pl.String,
+            "Valor": pl.String,
+            "Diferenca": pl.Int64,
+            "Parte": pl.Float64,
+            "Concentracao": pl.Float64,
+        }
+    )
+    if not atributos.columns:
+        return vazia
+    return (
+        pl.concat([chaves, atributos], how="horizontal")
+        .unpivot(index=["Peso", "Diferenca"], variable_name="Atributo", value_name="Valor")
+        .drop_nulls("Valor")
+        .group_by("Atributo", "Valor")
+        .agg(
+            pl.col("Peso").sum(),
+            pl.col("Diferenca").sum(),
+            pl.col("Diferenca").abs().sum().alias("Absoluta"),
+            pl.col("Diferenca").is_not_null().any().alias("ComDiferenca"),
+        )
+        .filter("ComDiferenca")
+        .with_columns((pl.col("Absoluta") / absoluta_total).alias("Parte"))
+        .with_columns((pl.col("Parte") / (pl.col("Peso") / peso_total)).alias("Concentracao"))
+        .sort(["Concentracao", "Atributo", "Valor"], descending=[True, False, False])
+        .select(vazia.columns)
+    )
+
+
 def _por_idade(operacoes: pl.DataFrame, data_base: date) -> tuple[tuple[str, int, int], ...]:
     """Chaves e Diferença absoluta de cada faixa de Idade: dias corridos do Aberta desde até a Data-base mais recente."""
     idade = (pl.lit(data_base) - pl.col("Desde")).dt.total_days()
@@ -214,6 +264,8 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         com_diferenca.group_by("Data").agg(pl.col("Diferenca").abs().sum()).iter_rows()
     )
     na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
+    a_na_mais_recente = base_a.filter(pl.col("Data") == data_base)
+    b_na_mais_recente = base_b.filter(pl.col("Data") == data_base)
     operacoes = (
         na_mais_recente.select(
             "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro(tolerancia)
@@ -236,12 +288,11 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
         sem_chave_a=_sem_chave(sem_chave_a, comuns),
         sem_chave_b=_sem_chave(sem_chave_b, comuns),
         operacoes=operacoes,
-        atributos=_atributos(
-            operacoes.select("Chave"),
-            base_a.filter(pl.col("Data") == data_base),
-            base_b.filter(pl.col("Data") == data_base),
-        ),
+        atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),
         abertas_desde_a_primeira=int(operacoes["OuAntes"].sum()),
         por_tipo=_por_tipo(operacoes),
         por_idade=_por_idade(operacoes, data_base),
+        por_atributo=_por_atributo(
+            cruzado.filter(pl.col("Data") == data_base), a_na_mais_recente, b_na_mais_recente, tolerancia
+        ),
     )
