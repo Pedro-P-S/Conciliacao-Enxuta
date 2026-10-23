@@ -15,4 +15,4 @@ Você é o orquestrador. NÃO faça nenhuma etapa você mesmo: cada uma vai para
 Regras:
 - Não leia código nem implemente no contexto principal.
 - A comunicação entre etapas é só por arquivos.
-- Confira que cada subagente começou com "Usando skill …", que a resposta não tem `SKILL INDISPONÍVEL` e que os arquivos esperados da etapa existem. Se algo disso falhar, pare e avise o usuário.
+- Confira que cada subagente começou com "Usando skill …" (ou "Usando skills …"), que a resposta não tem `SKILL INDISPONÍVEL` e que os arquivos esperados da etapa existem. Se algo disso falhar, pare e avise o usuário.
