@@ -67,14 +67,34 @@ def _sem_chave(fora: pl.DataFrame, comuns: list[date]) -> SemChave:
     return SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
 
 
-def _tipo_do_erro() -> pl.Expr:
+def _tipo_do_erro(tolerancia: int) -> pl.Expr:
     """Todos os Tipos que se aplicam, separados por `; ` na ordem da spec; Sem padrão quando nenhum se aplica.
 
     Espera as colunas A e B antes de o lado ausente virar 0 (nulo = a Chave não está naquela base).
+    A Tolerância é a folga nas comparações de Sinal invertido, Duplicado e Vírgula deslocada.
     """
+    a, b = pl.col("A").fill_null(0), pl.col("B").fill_null(0)
+
+    def um_e_vezes_o_outro(*fatores: int) -> pl.Expr:
+        """A = fator × B ou B = fator × A, com a Tolerância de folga."""
+        return pl.any_horizontal(
+            [((x - fator * y).abs() <= tolerancia) for fator in fatores for x, y in ((a, b), (b, a))]
+        )
+
+    def digitos(valor: pl.Expr) -> pl.Expr:
+        """Os dígitos de |valor| em ordem crescente: iguais quando são os mesmos dígitos em qualquer ordem."""
+        return valor.abs().cast(pl.String).str.split("").list.sort().list.join("")
+
     tipos = [
         ("Só em A", pl.col("B").is_null()),
         ("Só em B", pl.col("A").is_null()),
+        ("Sinal invertido", (a != 0) & ((a + b).abs() <= tolerancia)),
+        ("Duplicado", um_e_vezes_o_outro(2)),
+        ("Vírgula deslocada", um_e_vezes_o_outro(10, 100, 1000)),
+        (
+            "Dígitos trocados",
+            (pl.col("Diferenca") % 9 == 0) & (a.abs() != b.abs()) & (digitos(a) == digitos(b)),
+        ),
     ]
     juntos = pl.concat_str(
         [pl.when(condicao).then(pl.lit(nome)) for nome, condicao in tipos],
@@ -143,7 +163,7 @@ def conciliar(base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int) -> Re
     na_mais_recente = com_diferenca.filter(pl.col("Data") == data_base)
     operacoes = (
         na_mais_recente.select(
-            "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro()
+            "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro(tolerancia)
         )
         .join(_aberta_desde(com_diferenca, comuns), on="Chave", how="left")
         .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
