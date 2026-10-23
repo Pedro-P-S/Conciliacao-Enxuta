@@ -19,10 +19,27 @@ FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
 FORMATO_PERCENTUAL = "0.00%"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
+LIMITE_DE_LINHAS = 700_000
 
 
-def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
-    """Grava `conciliacao_AAAA-MM-DD.xlsx` em `pasta`, sobrescrevendo, e devolve o caminho."""
+def _aviso_de_corte(limite: int, total: int) -> str:
+    """O aviso de que a aba Operações com Diferença mostra só as `limite` maiores de `total`."""
+    return (
+        f"Nem todas as operações com diferença couberam: mostrando {_milhar(limite)} de {_milhar(total)}, "
+        "as maiores."
+    )
+
+
+def _milhar(numero: int) -> str:
+    """700000 → '700.000'."""
+    return f"{numero:,}".replace(",", ".")
+
+
+def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
+    """Grava `conciliacao_AAAA-MM-DD.xlsx` em `pasta`, sobrescrevendo, e devolve o caminho.
+
+    A aba Operações com Diferença mostra no máximo `limite` linhas, as maiores.
+    """
     caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -77,6 +94,10 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
         for nome, datas in (("Base A", resultado.data_bases_so_em_a), ("Base B", resultado.data_bases_so_em_b))
         if datas
     ]
+    aviso_de_corte = None
+    if resultado.operacoes.height > limite:
+        aviso_de_corte = _aviso_de_corte(limite, resultado.operacoes.height)
+        avisos.append(aviso_de_corte)
     for linha, aviso in enumerate(avisos, start=linha):
         ws.cell(linha, 1, aviso)
 
@@ -86,7 +107,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
 
     _aba_por_tipo(wb, resultado)
     _aba_por_atributo(wb, resultado)
-    _aba_operacoes(wb, resultado)
+    _aba_operacoes(wb, resultado, limite, aviso_de_corte)
     _grafico_da_diferenca(wb, ws, resultado)
 
     wb.save(caminho)
@@ -152,29 +173,36 @@ def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
     ws.column_dimensions["D"].width = 16
 
 
-def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado) -> None:
+def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, aviso_de_corte: str | None) -> None:
     """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro.
 
-    Depois do Aberta desde vêm os Atributos, com o nome original.
+    Depois do Aberta desde vêm os Atributos, com o nome original. Mostra só as `limite` primeiras (as
+    maiores); quando há corte, o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
     """
     ws = wb.create_sheet("Operações com Diferença")
+    linha_do_cabecalho = 1
+    if aviso_de_corte:
+        ws.cell(1, 1, aviso_de_corte).font = Font(bold=True)
+        linha_do_cabecalho = 2
+    # Operações e Atributos se alinham pela ordem das linhas: cortam juntos
+    operacoes, atributos = resultado.operacoes.head(limite), resultado.atributos.head(limite)
     titulos = ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
     primeiro_atributo = len(titulos) + 1
-    titulos += resultado.atributos.columns
+    titulos += atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
-        ws.cell(1, coluna, titulo).font = Font(bold=True)
-    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(resultado.operacoes.iter_rows(), start=2):
+        ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
+    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
         ws.cell(linha, 1, chave)
         for coluna, centavos in enumerate((a, b, diferenca), start=2):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
         ws.cell(linha, 5, tipo)
         ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
-    for coluna, atributo in enumerate(resultado.atributos.iter_columns(), start=primeiro_atributo):
-        for linha, valor in enumerate(atributo, start=2):
+    for coluna, atributo in enumerate(atributos.iter_columns(), start=primeiro_atributo):
+        for linha, valor in enumerate(atributo, start=linha_do_cabecalho + 1):
             ws.cell(linha, coluna, valor)
         ws.column_dimensions[get_column_letter(coluna)].width = 18
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(titulos))}{resultado.operacoes.height + 1}"
+    ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
+    ws.auto_filter.ref = f"A{linha_do_cabecalho}:{get_column_letter(len(titulos))}{linha_do_cabecalho + operacoes.height}"
     ws.column_dimensions["A"].width = 24
     for letra in "BCD":
         ws.column_dimensions[letra].width = 18

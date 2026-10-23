@@ -6,7 +6,10 @@ import openpyxl
 import pytest
 
 from conciliacao_enxuta.cli import main
+from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
+from conciliacao_enxuta.excel import gravar_excel
 from conciliacao_enxuta.exemplo import gerar_bases_exemplo
+from conciliacao_enxuta.leitura import ler_base
 
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
@@ -538,3 +541,88 @@ def test_bases_sem_atributos_tem_a_aba_por_atributo_so_com_o_cabecalho(tmp_path,
     assert [[c.value for c in linha] for linha in wb["Por Atributo"].iter_rows()] == [
         ["Atributo", "Valor", "Diferença", "% da Diferença"]
     ]
+
+
+def gravar_com_limite(base_a, base_b, pasta, limite):
+    """Arquivos → Resultado → `.xlsx` com o limite de linhas reduzido, que a CLI não expõe."""
+    return gravar_excel(conciliar(ler_base(base_a), ler_base(base_b), TOLERANCIA_PADRAO), pasta, limite=limite)
+
+
+def test_acima_do_limite_a_aba_mostra_as_maiores_com_o_aviso_na_linha_1(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    # 5 Chaves com Diferença: 10, 50, 30, 40 e 20 reais; o Produto anda junto com a Chave
+    base_a.write_text(
+        "Chave,Data,Valor,Produto\n"
+        "1,2026-09-30,110.00,p1\n2,2026-09-30,150.00,p2\n3,2026-09-30,130.00,p3\n"
+        "4,2026-09-30,140.00,p4\n5,2026-09-30,120.00,p5\n",
+        encoding="utf-8",
+    )
+    base_b.write_text(
+        "Chave,Data,Valor\n1,2026-09-30,100.00\n2,2026-09-30,100.00\n3,2026-09-30,100.00\n"
+        "4,2026-09-30,100.00\n5,2026-09-30,100.00\n",
+        encoding="utf-8",
+    )
+
+    caminho = gravar_com_limite(base_a, base_b, tmp_path, limite=3)
+
+    aviso = "Nem todas as operações com diferença couberam: mostrando 3 de 5, as maiores."
+    ws = openpyxl.load_workbook(caminho)["Operações com Diferença"]
+    assert ws["A1"].value == aviso
+    assert [c.value for c in ws[2]] == [
+        "Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde", "Produto"
+    ]
+    linhas = list(ws.iter_rows(min_row=3, values_only=True))
+    assert [(chave, diferenca, produto) for chave, _, _, diferenca, _, _, produto in linhas] == [
+        ("2", 50.0, "p2"), ("4", 40.0, "p4"), ("3", 30.0, "p3")
+    ]
+    assert ws.freeze_panes == "A3"
+    assert ws.auto_filter.ref == "A2:G5"
+    assert avisos_do_resumo(caminho)[-1] == aviso
+
+
+def test_no_limite_nao_ha_corte_nem_aviso(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-30,110.00\n2,2026-09-30,150.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-30,100.00\n2,2026-09-30,100.00\n", encoding="utf-8")
+
+    caminho = gravar_com_limite(base_a, base_b, tmp_path, limite=2)
+
+    ws = openpyxl.load_workbook(caminho)["Operações com Diferença"]
+    assert ws["A1"].value == "Chave"
+    assert ws.freeze_panes == "A2"
+    assert ws.auto_filter.ref == "A1:F3"
+    assert not any(aviso.startswith("Nem todas") for aviso in avisos_do_resumo(caminho))
+
+
+def test_o_corte_nas_bases_de_exemplo_mostra_as_maiores_do_gabarito_e_avisa_por_ultimo_no_resumo(tmp_path):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    total = gabarito.chaves_com_diferenca
+    assert total > 4
+
+    caminho = gravar_com_limite(gabarito.base_a, gabarito.base_b, tmp_path, limite=4)
+
+    aviso = f"Nem todas as operações com diferença couberam: mostrando 4 de {total}, as maiores."
+    ws = openpyxl.load_workbook(caminho)["Operações com Diferença"]
+    assert ws["A1"].value == aviso
+    assert ws["A2"].value == "Chave"
+    assert [linha[0] for linha in ws.iter_rows(min_row=3, values_only=True)] == [
+        chave for chave, *_ in gabarito.operacoes[:4]
+    ]
+    avisos = avisos_do_resumo(caminho)
+    assert avisos[-1] == aviso
+    assert avisos[-2].startswith("Data-bases ignoradas")
+
+
+def test_o_limite_e_o_total_saem_com_separador_de_milhar_brasileiro(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    chaves = range(1, 1235)
+    base_a.write_text("Chave,Data,Valor\n" + "".join(f"{c},2026-09-30,{c}.50\n" for c in chaves), encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n" + "".join(f"{c},2026-09-30,0.00\n" for c in chaves), encoding="utf-8")
+
+    caminho = gravar_com_limite(base_a, base_b, tmp_path, limite=1000)
+
+    aviso = "Nem todas as operações com diferença couberam: mostrando 1.000 de 1.234, as maiores."
+    ws = openpyxl.load_workbook(caminho)["Operações com Diferença"]
+    assert ws["A1"].value == aviso
+    assert ws.max_row == 1002
+    assert avisos_do_resumo(caminho)[-1] == aviso
