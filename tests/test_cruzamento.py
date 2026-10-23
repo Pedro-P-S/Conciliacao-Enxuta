@@ -182,8 +182,8 @@ def test_operacoes_com_diferenca_sao_so_da_data_base_mais_recente_acima_da_toler
 
     r = conciliar(a, b, tolerancia=100)
 
-    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo"]
-    assert r.operacoes.rows() == [
+    assert r.operacoes.columns == ["Chave", "A", "B", "Diferenca", "Tipo", "Desde", "OuAntes"]
+    assert r.operacoes.select("Chave", "A", "B", "Diferenca", "Tipo").rows() == [
         ("grande", 100_000, 200_000, -100_000, "Sem padrão"),
         ("so_b", 0, 40_000, -40_000, "Só em B"),
         ("so_a", 30_000, 0, 30_000, "Só em A"),
@@ -233,3 +233,58 @@ def test_por_tipo_do_erro_soma_chaves_e_diferenca_absoluta_da_maior_para_a_menor
 
     assert r.por_tipo.columns == ["Tipo", "Chaves", "Absoluta"]
     assert r.por_tipo.rows() == [("Só em B", 1, 30_000), ("Só em A", 2, 3_000), ("Sem padrão", 2, 2_000)]
+
+
+def aberta_desde(r) -> dict:
+    """{Chave: (Aberta desde, ou antes)} das Operações com Diferença."""
+    return {chave: (desde, ou_antes) for chave, desde, ou_antes in r.operacoes.select("Chave", "Desde", "OuAntes").rows()}
+
+
+def test_diferenca_que_some_e_volta_tem_aberta_desde_na_data_da_volta():
+    # x tem Diferença em 1, some em 2 (A = B) e volta em 3; y some em 2 por estar ausente das duas bases.
+    a = base_com_data_bases(
+        {1: [("x", 5_000), ("y", 9_000)], 2: [("x", 1_000)], 3: [("x", 5_000), ("y", 9_000)], 4: [("x", 7_000), ("y", 9_000)]}
+    )
+    b = base_com_data_bases({1: [("x", 1_000)], 2: [("x", 1_000)], 3: [("x", 1_000)], 4: [("x", 1_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert aberta_desde(r) == {"x": (dia(3), False), "y": (dia(3), False)}
+
+
+def test_diferenca_que_so_muda_de_valor_mantem_o_aberta_desde_original():
+    a = base_com_data_bases({1: [("x", 1_000)], 2: [("x", 5_000)], 3: [("x", -8_000)], 4: [("x", 2_000)]})
+    b = base_com_data_bases({1: [("x", 1_000)], 2: [("x", 1_000)], 3: [("x", 1_000)], 4: [("x", 1_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert aberta_desde(r) == {"x": (dia(2), False)}
+
+
+def test_diferenca_que_cai_para_dentro_da_tolerancia_conta_como_sumida():
+    a = base_com_data_bases({1: [("x", 5_000)], 2: [("x", 1_100)], 3: [("x", 5_000)]})
+    b = base_com_data_bases({1: [("x", 1_000)], 2: [("x", 1_000)], 3: [("x", 1_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert aberta_desde(r) == {"x": (dia(3), False)}
+
+
+def test_diferenca_presente_desde_a_primeira_data_base_e_marcada_ou_antes_e_contada():
+    # A Data-base 1 está só em A: a primeira comum é a 2.
+    a = base_com_data_bases(
+        {1: [("z", 1)], 2: [("x", 5_000), ("y", 3_000)], 3: [("x", 6_000), ("y", 3_000), ("w", 4_000)]}
+    )
+    b = base_com_data_bases({2: [("x", 1_000), ("y", 3_000)], 3: [("x", 1_000), ("y", 1_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert aberta_desde(r) == {"x": (dia(2), True), "y": (dia(3), False), "w": (dia(3), False)}
+    assert r.abertas_desde_a_primeira == 1
+
+
+def test_com_uma_so_data_base_toda_diferenca_e_ou_antes():
+    r = conciliar(base([("x", 5_000), ("y", 1)]), base([("x", 1_000), ("y", 1)]), tolerancia=100)
+
+    assert aberta_desde(r) == {"x": (DIA, True)}
+    assert r.abertas_desde_a_primeira == 1

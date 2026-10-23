@@ -326,14 +326,14 @@ def test_aba_operacoes_com_diferenca_lista_as_chaves_da_data_base_mais_recente_d
 
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
     linhas = list(ws.iter_rows())
-    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro"]
-    assert [tuple(c.value for c in linha) for linha in linhas[1:]] == [
+    assert [c.value for c in linhas[0]] == ["Chave", "Valor A", "Valor B", "Diferença", "Tipo do Erro", "Aberta desde"]
+    assert [tuple(c.value for c in linha[:5]) for linha in linhas[1:]] == [
         (chave, a / 100, b / 100, d / 100, tipo) for chave, a, b, d, tipo in gabarito.operacoes
     ]
     assert len(linhas) - 1 == gabarito.chaves_com_diferenca
     assert all(c.number_format == FORMATO_REAIS for linha in linhas[1:] for c in linha[1:4])
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == f"A1:E{gabarito.chaves_com_diferenca + 1}"
+    assert ws.auto_filter.ref == f"A1:F{gabarito.chaves_com_diferenca + 1}"
 
 
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
@@ -369,3 +369,63 @@ def test_sem_chaves_com_diferenca_a_aba_por_tipo_do_erro_so_tem_o_cabecalho_e_a_
     ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Por Tipo do Erro"]
     valores = [[c.value for c in linha if c.value is not None] for linha in ws.iter_rows()]
     assert [v for v in valores if v] == [["Tipo do Erro", "Chaves", "Diferença absoluta"], [NOTA_POR_TIPO]]
+
+
+def aberta_desde_mostrado(celula) -> str:
+    """O texto que o Excel mostra na célula de Aberta desde: a data, com " ou antes" quando o formato o acrescenta."""
+    texto = f"{celula.value:%d/%m/%Y}"
+    assert celula.number_format in ("DD/MM/YYYY", 'DD/MM/YYYY" ou antes"')
+    return texto + (" ou antes" if celula.number_format.endswith('" ou antes"') else "")
+
+
+def test_aberta_desde_mostra_a_ultima_abertura_e_ou_antes_quando_vem_da_primeira_data_base(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    primeira = gabarito.historico[0][0]
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    ws = openpyxl.load_workbook(capsys.readouterr().out.strip())["Operações com Diferença"]
+    mostrado = {linha[0].value: aberta_desde_mostrado(linha[5]) for linha in ws.iter_rows(min_row=2)}
+    assert mostrado == {
+        chave: f"{desde:%d/%m/%Y}" + (" ou antes" if desde == primeira else "")
+        for chave, desde in gabarito.aberta_desde.items()
+    }
+    # As Chaves plantadas: some e volta, cai para dentro da Tolerância na véspera, só abre depois e muda de valor
+    assert mostrado["C00021"] == "16/06/2026"
+    assert mostrado["C00031"] == "30/09/2026"
+    assert mostrado["C00051"] == "03/08/2026"
+    assert mostrado["C00001"] == "01/04/2026 ou antes"
+    assert isinstance(ws["F2"].value, datetime)
+
+
+def avisos_do_resumo(caminho) -> list[str]:
+    """Os textos da coluna A do Resumo abaixo do quadro (que termina em Chaves com Diferença), na ordem."""
+    textos = [c.value for c in openpyxl.load_workbook(caminho)["Resumo"]["A"] if isinstance(c.value, str)]
+    return textos[textos.index("Chaves com Diferença") + 1 :]
+
+
+def test_resumo_avisa_primeiro_quantas_chaves_estao_abertas_desde_a_primeira_data_base(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    assert 0 < gabarito.abertas_desde_a_primeira < gabarito.chaves_com_diferenca
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    avisos = avisos_do_resumo(capsys.readouterr().out.strip())
+    assert avisos[0] == (
+        f"Chaves com Diferença desde a primeira Data-base (01/04/2026) ou antes: {gabarito.abertas_desde_a_primeira}."
+        " A Diferença delas pode ser ainda mais antiga."
+    )
+    assert avisos[1] == AVISO_SEM_CHAVE
+    assert avisos[-1].startswith("Data-bases ignoradas")
+
+
+def test_sem_chaves_abertas_desde_a_primeira_data_base_o_resumo_nao_tem_esse_aviso(tmp_path, capsys):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,90.00\n", encoding="utf-8")
+    base_b.write_text("Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n", encoding="utf-8")
+
+    main(["conciliar", str(base_a), str(base_b)])
+
+    caminho = capsys.readouterr().out.strip()
+    assert ler_resumo(caminho)["Chaves com Diferença"].value == 1
+    assert avisos_do_resumo(caminho) == []
