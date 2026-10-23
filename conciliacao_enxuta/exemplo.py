@@ -33,19 +33,26 @@ class Gabarito:
     chaves_com_diferenca: int
 
 
-def _reais(centavos: int) -> str:
-    """Centavos → texto simples como `1234.56`."""
+def _reais_com_rs(centavos: int) -> str:
+    """Centavos → `R$ 1.234,56`, ou `(1.234,56)` se negativo."""
+    reais, resto = divmod(abs(centavos), 100)
+    numero = f"{reais:,}".replace(",", ".") + f",{resto:02d}"
+    return f"({numero})" if centavos < 0 else f"R$ {numero}"
+
+
+def _reais_sem_milhar(centavos: int) -> str:
+    """Centavos → `-1234,56`, sem separador de milhar."""
     sinal = "-" if centavos < 0 else ""
     reais, resto = divmod(abs(centavos), 100)
-    return f"{sinal}{reais}.{resto:02d}"
+    return f"{sinal}{reais},{resto:02d}"
 
 
-def _escrever(caminho: Path, valores: dict[str, int]) -> None:
-    with caminho.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["Chave", "Data", "Valor"])
-        for chave, valor in valores.items():
-            w.writerow([chave, DATA_BASE.isoformat(), _reais(valor)])
+def _escrever(caminho: Path, cabecalho: list[str], linhas: list[list[str]]) -> None:
+    """`.csv` separado por `;` e com BOM, como o Excel salva no Brasil."""
+    with caminho.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(cabecalho)
+        w.writerows(linhas)
 
 
 def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
@@ -60,7 +67,7 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
 
     for i in range(1, N_CHAVES + 1):
         chave = f"C{i:05d}"
-        valor = sorteio.randint(1_000, 10_000_000)
+        valor = sorteio.choice([-1, 1, 1, 1]) * sorteio.randint(1_000, 10_000_000)
         caso = i % 10
         if caso == 1:  # Diferença acima da Tolerância, positiva ou negativa
             delta = sorteio.choice([-1, 1]) * sorteio.randint(TOLERANCIA + 1, 500_000)
@@ -82,8 +89,18 @@ def gerar_bases_exemplo(pasta: str | Path) -> Gabarito:
     b["SO_B_CENTAVOS"] = TOLERANCIA
 
     base_a, base_b = pasta / "base_a.csv", pasta / "base_b.csv"
-    _escrever(base_a, a)
-    _escrever(base_b, b)
+    # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato
+    _escrever(
+        base_a,
+        ["CHAVE", "data", "Valor "],
+        [[chave, DATA_BASE.strftime("%d/%m/%Y"), _reais_com_rs(valor)] for chave, valor in a.items()],
+    )
+    data_do_excel = str((DATA_BASE - date(1899, 12, 30)).days)
+    _escrever(
+        base_b,
+        [" Chave", "DATA", "VALOR"],
+        [[f" {chave} ", data_do_excel, _reais_sem_milhar(valor)] for chave, valor in b.items()],
+    )
     return Gabarito(
         base_a=base_a,
         base_b=base_b,
