@@ -17,8 +17,11 @@ O identificador que liga uma linha da Base A a uma linha da Base B.
 **Linha sem Chave**:
 Uma linha com a Chave vazia, por exemplo um lançamento manual. Fica fora do cruzamento pela Chave, mas entra nos totais e é uma Diferença do valor inteiro na sua Data-base.
 
+**Linha rejeitada**:
+Uma linha do arquivo que fica fora de tudo porque a Data ou o Valor estão vazios ou não puderam ser lidos. Aparece com o motivo na aba Erros.
+
 **Atributo**:
-Qualquer coluna além de Chave, Data e Valor, com o nome que o usuário quiser. Serve para achar onde a diferença se concentra.
+Qualquer coluna além de Chave, Data e Valor, com o nome que o usuário quiser. Serve para achar quais valores têm Diferença acima do peso.
 
 **Data-base**:
 Cada valor distinto da coluna `Data`. Uma base pode trazer várias Data-bases, por exemplo uma posição por dia útil durante seis meses, sem precisar ter todos os dias.
@@ -34,8 +37,12 @@ A soma das Diferenças com sinal. Positivas e negativas se anulam.
 **Diferença absoluta**:
 A soma das Diferenças sem sinal. Mede o tamanho do problema, mesmo quando a Diferença total dá perto de zero.
 
-**Concentração**:
+**Diferença acima do peso**:
 Quanto a parte de um valor de Atributo na Diferença absoluta passa da parte dele no Total: % da Diferença absoluta − % do Total. Perto de zero, o valor só tem a Diferença que o seu peso explica.
+_Evitar_: Concentração (sugere "onde está a maior parte da Diferença")
+
+**Atributos Problemáticos**:
+Os valores de Atributo com a maior Diferença acima do peso, misturando Atributos.
 
 **Tolerância**:
 O valor até o qual uma Diferença conta como zero. Padrão de R$ 1,00; o usuário pode mudar.

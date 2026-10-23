@@ -21,7 +21,7 @@ Guias, não leis. Na dúvida, eles decidem.
 
 - Pode **ler** `..\Desafio-Conciliacao\conciliacao\` para copiar e adaptar peças (leitura, parse de valor e data, centavos, formatação, detecção de padrões). **Nunca escreva** lá, nem importe de lá.
 - A spec, o glossário, os ADRs, os tickets e o CLAUDE.md do projeto grande **não valem** aqui. Se algo de lá contradiz o `GRILL.md` ou a spec, vale o daqui.
-- Não traga o que foi cortado: dashboard HTML, Bases Auxiliares, Histórico em Parquet, Aging, Justificativas, Pareto, Compensação Oculta, Pares Prováveis, mapeamento de colunas, Qualidade, Manifesto, mais de 4 abas.
+- Não traga o que foi cortado: dashboard HTML (só o Resumo vai para HTML), Bases Auxiliares, Histórico em Parquet, Aging, Justificativas, Pareto, Compensação Oculta, Pares Prováveis, mapeamento de colunas, Qualidade, Manifesto, mais de 5 abas.
 
 ## Regras fixas
 
