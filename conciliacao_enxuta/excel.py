@@ -12,6 +12,7 @@ from conciliacao_enxuta.cruzamento import Resultado
 # Código de formato do Excel; no Excel em português aparece como #.##0,00.
 FORMATO_REAIS = "#,##0.00"
 FORMATO_DATA = "DD/MM/YYYY"
+FORMATO_INTEIRO = "#,##0"
 
 
 def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
@@ -28,13 +29,25 @@ def gravar_excel(resultado: Resultado, pasta: str | Path) -> Path:
         ("Total B", resultado.total_b / 100, FORMATO_REAIS),
         ("Diferença total", resultado.diferenca_total / 100, FORMATO_REAIS),
         ("Diferença absoluta", resultado.diferenca_absoluta / 100, FORMATO_REAIS),
-        ("Chaves com Diferença", resultado.chaves_com_diferenca, "#,##0"),
+        ("Chaves com Diferença", resultado.chaves_com_diferenca, FORMATO_INTEIRO),
     ]
     for linha, (rotulo, valor, formato) in enumerate(quadro, start=1):
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
-    ws.column_dimensions["A"].width = 24
+
+    if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
+        linha = len(quadro) + 2
+        for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
+            ws.cell(linha, coluna, titulo).font = Font(bold=True)
+        for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
+            linha += 1
+            ws.cell(linha, 1, base)
+            ws.cell(linha, 2, sem_chave.linhas).number_format = FORMATO_INTEIRO
+            ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
+
+    ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["C"].width = 20
 
     wb.save(caminho)
     return caminho
