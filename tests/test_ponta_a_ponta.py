@@ -403,9 +403,9 @@ def test_aberta_desde_mostra_a_ultima_abertura_e_ou_antes_quando_vem_da_primeira
 
 
 def avisos_do_resumo(caminho) -> list[str]:
-    """Os textos da coluna A do Resumo abaixo do quadro (que termina em Chaves com Diferença), na ordem."""
+    """Os textos da coluna A do Resumo abaixo das faixas de Idade (a última é Mais de 5 anos), na ordem."""
     textos = [c.value for c in openpyxl.load_workbook(caminho)["Resumo"]["A"] if isinstance(c.value, str)]
-    return textos[textos.index("Chaves com Diferença") + 1 :]
+    return textos[textos.index("Mais de 5 anos") + 1 :]
 
 
 def test_resumo_avisa_primeiro_quantas_chaves_estao_abertas_desde_a_primeira_data_base(tmp_path, capsys):
@@ -433,3 +433,32 @@ def test_sem_chaves_abertas_desde_a_primeira_data_base_o_resumo_nao_tem_esse_avi
     caminho = capsys.readouterr().out.strip()
     assert ler_resumo(caminho)["Chaves com Diferença"].value == 1
     assert avisos_do_resumo(caminho) == []
+
+
+FAIXAS = ["Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"]
+
+
+def test_resumo_mostra_as_5_faixas_de_idade_abaixo_do_quadro_e_acima_dos_avisos(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    # As plantadas caem em até 30, 31 a 90 e 91 a 365 dias; as duas últimas faixas ficam vazias
+    assert [nome for nome, _, _ in gabarito.por_idade] == FAIXAS
+    assert [chaves for _, chaves, _ in gabarito.por_idade][3:] == [0, 0]
+    assert all(chaves for _, chaves, _ in gabarito.por_idade[:3])
+
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    linhas = list(openpyxl.load_workbook(capsys.readouterr().out.strip())["Resumo"].iter_rows(min_col=1, max_col=3))
+    rotulos = [linha[0].value for linha in linhas]
+    inicio = rotulos.index("Idade da Diferença")
+    assert inicio > rotulos.index("Chaves com Diferença")
+    assert [c.value for c in linhas[inicio][1:]] == ["Chaves", "Diferença absoluta"]
+    faixas = linhas[inicio + 1 : inicio + 6]
+    assert [(f.value, chaves.value, absoluta.value) for f, chaves, absoluta in faixas] == [
+        (nome, chaves, absoluta / 100) for nome, chaves, absoluta in gabarito.por_idade
+    ]
+    assert all(absoluta.number_format == FORMATO_REAIS for _, _, absoluta in faixas)
+    assert sum(chaves.value for _, chaves, _ in faixas) == gabarito.chaves_com_diferenca
+    assert sum(absoluta for _, _, absoluta in gabarito.por_idade) == gabarito.diferenca_absoluta
+    # Os avisos vêm depois das faixas
+    primeiro_aviso = next(i for i, r in enumerate(rotulos) if isinstance(r, str) and r.startswith("Chaves com Diferença desde"))
+    assert primeiro_aviso > inicio + 5

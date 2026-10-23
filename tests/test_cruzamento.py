@@ -1,6 +1,6 @@
 """Seam 1: `conciliar` com DataFrames pequenos montados no teste."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 
@@ -371,3 +371,62 @@ def test_tolerancia_e_folga_no_sinal_invertido_no_duplicado_e_na_virgula_desloca
         "quase_virgula": "Vírgula deslocada",
         "virgula_fora": "Sem padrão",
     }
+
+
+def abertas_ha(dias_por_chave: dict[str, tuple[int, int]]) -> pl.DataFrame:
+    """Base A em que cada Chave tem o Valor dado em toda Data-base desde `dias` antes de DIA até DIA.
+
+    {Chave: (dias, Valor)}. Há ainda uma Data-base 3.000 dias antes, para nenhuma ser a primeira.
+    """
+    inicios = {DIA - timedelta(dias) for dias, _ in dias_por_chave.values()} | {DIA - timedelta(3_000)}
+    return pl.concat(
+        [
+            base([(chave, valor) for chave, (dias, valor) in dias_por_chave.items() if data >= DIA - timedelta(dias)], data)
+            for data in sorted(inicios | {DIA})
+        ]
+    )
+
+
+def base_b_nas_mesmas_datas(a: pl.DataFrame) -> pl.DataFrame:
+    """Base B com só uma Chave sem Diferença em cada Data-base de `a`."""
+    datas = a["Data"].unique().sort()
+    return pl.concat([base([("igual", 0)], data) for data in datas])
+
+
+def test_bordas_das_faixas_de_idade():
+    a = abertas_ha({f"d{n}": (n, n * 100) for n in [30, 31, 90, 91, 365, 366, 1826, 1827]})
+
+    r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
+
+    assert r.por_idade == (
+        ("Até 30 dias", 1, 3_000),
+        ("31 a 90 dias", 2, 3_100 + 9_000),
+        ("91 a 365 dias", 2, 9_100 + 36_500),
+        ("366 dias a 5 anos", 2, 36_600 + 182_600),
+        ("Mais de 5 anos", 1, 182_700),
+    )
+
+
+def test_diferenca_aberta_na_propria_data_base_mais_recente_tem_idade_zero():
+    a = abertas_ha({"hoje": (0, 5_000), "antiga": (100, 7_000)})
+
+    r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
+
+    assert r.por_idade[0] == ("Até 30 dias", 1, 5_000)
+
+
+def test_faixas_de_idade_somam_as_chaves_com_diferenca_e_a_diferenca_absoluta():
+    # Diferenças positivas e negativas, uma "ou antes" (desde a primeira Data-base) e faixas vazias
+    a = abertas_ha({"x": (10, 5_000), "y": (10, -8_000), "z": (200, -3_000), "w": (3_000, 4_000)})
+
+    r = conciliar(a, base_b_nas_mesmas_datas(a), tolerancia=100)
+
+    assert r.abertas_desde_a_primeira == 1
+    assert [nome for nome, _, _ in r.por_idade] == [
+        "Até 30 dias", "31 a 90 dias", "91 a 365 dias", "366 dias a 5 anos", "Mais de 5 anos"
+    ]
+    assert sum(chaves for _, chaves, _ in r.por_idade) == r.chaves_com_diferenca == 4
+    assert sum(absoluta for _, _, absoluta in r.por_idade) == r.diferenca_absoluta == 20_000
+    assert r.por_idade[1] == ("31 a 90 dias", 0, 0)
+    assert r.por_idade[3] == ("366 dias a 5 anos", 0, 0)
+    assert r.por_idade[4] == ("Mais de 5 anos", 1, 4_000)  # 3.000 dias: a faixa que a conta der, mesmo "ou antes"
