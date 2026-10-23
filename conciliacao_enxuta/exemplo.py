@@ -3,7 +3,7 @@
 As Diferenças são plantadas e o gabarito é montado a partir delas, sem passar pelo cruzamento.
 Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda uma Data-base que a Base A não tem.
 A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial. As duas trazem a
-Carteira, em que Legado concentra a Diferença, e a Moeda, BRL em todas as Chaves.
+Carteira, em que Legado tem Diferença acima do peso, e a Moeda, BRL em todas as Chaves.
 No fim de cada base vêm Linhas rejeitadas, uma de cada motivo, que ficam fora de tudo.
 No `.csv`, a Base A sai em UTF-8 com BOM e a Base B em cp1252, as duas formas do Excel em português.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
@@ -95,7 +95,7 @@ class Gabarito:
     operacoes: tuple[tuple[str, int, int, int, str], ...]
     aberta_desde: dict[str, date]  # das Chaves das operações
     atributos: dict[str, dict[str, str | None]]  # das Chaves das operações: {Chave: {Atributo: valor}}
-    # (Atributo, Valor, Diferença, Concentração), por Diferença absoluta decrescente
+    # (Atributo, Valor, Diferença absoluta, Diferença acima do peso), só os acima do peso, do maior para o menor
     por_atributo: tuple[tuple[str, str, int, float], ...]
     por_tipo: tuple[tuple[str, int, int], ...]  # (Tipo do Erro, Chaves, Diferença absoluta), da maior para a menor
     por_idade: tuple[tuple[str, int, int], ...]  # (Faixa de Idade, Chaves, Diferença absoluta), as 5 em ordem
@@ -138,10 +138,12 @@ def _atributos_plantados(chave: str) -> tuple[dict[str, str | None], dict[str, s
     """Os Atributos da Chave em A e em B, como {Atributo: valor}.
 
     O Produto fica vazio em A nas Chaves múltiplas de 7.
-    As órfãs dentro da Tolerância e as linhas sem Chave não têm Atributo.
+    As órfãs dentro da Tolerância só têm a Moeda, para o BRL ficar em todas as Chaves; as linhas sem Chave não têm
+    Atributo.
     """
     if not re.fullmatch(r"C\d{5}", chave):
-        return {}, {}
+        moeda = {"Moeda": "BRL"} if chave.strip() else {}
+        return moeda, moeda
     i = int(chave[1:])
     produto = PRODUTOS[i % len(PRODUTOS)]
     nas_duas = {"Carteira": "Legado" if _legado(i) else "Atual", "Moeda": "BRL"}
@@ -413,32 +415,28 @@ def _atributos_da_chave(chave: str, em_a: bool, em_b: bool) -> dict[str, str | N
 def _por_atributo(
     a: dict[str, int], b: dict[str, int], diferencas: dict[str, int]
 ) -> tuple[tuple[str, str, int, float], ...]:
-    """(Atributo, Valor, Diferença, Concentração) dos valores com alguma Diferença plantada.
+    """(Atributo, Valor, Diferença absoluta, Diferença acima do peso) dos valores acima do peso.
 
-    O peso de cada Chave no total é |A|, ou |B| quando A é zero ou ausente; a Concentração é a % da Diferença
-    absoluta − a % do peso no total. Ordem: Diferença absoluta decrescente, depois Atributo e Valor.
+    O peso de cada Chave no total é |A|, ou |B| quando A é zero ou ausente; a Diferença acima do peso é a % da
+    Diferença absoluta − a % do peso no total, e só entra quando > 0. Ordem: Diferença acima do peso decrescente,
+    depois Atributo e Valor.
     """
     pesos = {chave: abs(a.get(chave, 0)) or abs(b.get(chave, 0)) for chave in a.keys() | b.keys()}
     peso_total, absoluta_total = sum(pesos.values()), sum(abs(d) for d in diferencas.values())
-    soma: dict[tuple[str, str], tuple[int, int, int, bool]] = {}
+    soma: dict[tuple[str, str], tuple[int, int]] = {}
     for chave, peso in pesos.items():
-        diferenca = diferencas.get(chave)
         for atributo, valor in _atributos_da_chave(chave, chave in a, chave in b).items():
             if valor is None:
                 continue
-            p, d, absoluta, com_diferenca = soma.get((atributo, valor), (0, 0, 0, False))
-            soma[(atributo, valor)] = (
-                p + peso,
-                d + (diferenca or 0),
-                absoluta + abs(diferenca or 0),
-                com_diferenca or diferenca is not None,
-            )
+            p, absoluta = soma.get((atributo, valor), (0, 0))
+            soma[(atributo, valor)] = (p + peso, absoluta + abs(diferencas.get(chave, 0)))
     linhas = sorted(
-        (-absoluta, atributo, valor, d, absoluta / absoluta_total - p / peso_total)
-        for (atributo, valor), (p, d, absoluta, com_diferenca) in soma.items()
-        if com_diferenca
+        (-(absoluta / absoluta_total - p / peso_total), atributo, valor, absoluta)
+        for (atributo, valor), (p, absoluta) in soma.items()
     )
-    return tuple((atributo, valor, d, concentracao) for _, atributo, valor, d, concentracao in linhas)
+    return tuple(
+        (atributo, valor, absoluta, -menos_acima) for menos_acima, atributo, valor, absoluta in linhas if menos_acima < 0
+    )
 
 
 if __name__ == "__main__":

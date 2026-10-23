@@ -8,6 +8,7 @@ from datetime import date
 import polars as pl
 
 TOLERANCIA_PADRAO = 100  # centavos: R$ 1,00
+QUANTOS_PROBLEMATICOS = 5
 SEM_PADRAO = "Sem padrão"
 SEPARADOR_DE_TIPOS = "; "
 # Faixas da Idade da Diferença, em ordem: (nome, maior Idade em dias da faixa; None = sem limite)
@@ -67,10 +68,15 @@ class Resultado:
     por_tipo: pl.DataFrame
     # Por faixa de Idade da Diferença: (Faixa, Chaves, Diferença absoluta), as 5 sempre, na ordem de FAIXAS_DE_IDADE
     por_idade: tuple[tuple[str, int, int], ...]
-    # Por Atributo e valor, só os valores com alguma Chave com Diferença: Atributo, Valor, Diferenca (soma com sinal)
-    # e Concentracao (fração da Diferença absoluta − fração do peso no total), por Diferença absoluta decrescente.
+    # Por Atributo e valor, só os valores com Diferença acima do peso: Atributo, Valor, Absoluta (soma das
+    # |Diferença| das Chaves) e AcimaDoPeso (fração da Diferença absoluta − fração do peso no total), decrescente.
     # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
+
+    @property
+    def atributos_problematicos(self) -> pl.DataFrame:
+        """As 5 primeiras linhas de `por_atributo`, misturando Atributos; menos se a tabela tiver menos."""
+        return self.por_atributo.head(QUANTOS_PROBLEMATICOS)
 
 
 COLUNAS_DAS_REJEITADAS = {
@@ -242,7 +248,7 @@ def _por_tipo(operacoes: pl.DataFrame) -> pl.DataFrame:
 def _por_atributo(
     na_data_base: pl.DataFrame, base_a: pl.DataFrame, base_b: pl.DataFrame, tolerancia: int
 ) -> pl.DataFrame:
-    """Onde a Diferença se concentra, descontado o peso que cada valor de Atributo já tem no total.
+    """Os valores de Atributo com Diferença acima do peso que já têm no total.
 
     `na_data_base` são todas as Chaves cruzadas na Data-base mais recente; `base_a` e `base_b`, as bases preparadas
     nela, de onde vêm os Atributos.
@@ -251,34 +257,28 @@ def _por_atributo(
     a, b = pl.col("A").fill_null(0), pl.col("B").fill_null(0)
     chaves = na_data_base.select(
         pl.when(a != 0).then(a).otherwise(b).abs().alias("Peso"),
-        # Só a Diferença acima da Tolerância conta; dentro dela, fica nula
-        pl.when(pl.col("Diferenca").abs() > tolerancia).then(pl.col("Diferenca")).alias("Diferenca"),
+        # Só a Diferença acima da Tolerância conta; dentro dela, fica 0
+        pl.when(pl.col("Diferenca").abs() > tolerancia)
+        .then(pl.col("Diferenca").abs())
+        .otherwise(0)
+        .alias("Absoluta"),
     )
-    peso_total, absoluta_total = chaves["Peso"].sum(), chaves["Diferenca"].abs().sum()
+    peso_total, absoluta_total = chaves["Peso"].sum(), chaves["Absoluta"].sum()
     vazia = pl.DataFrame(
-        schema={
-            "Atributo": pl.String,
-            "Valor": pl.String,
-            "Diferenca": pl.Int64,
-            "Concentracao": pl.Float64,
-        }
+        schema={"Atributo": pl.String, "Valor": pl.String, "Absoluta": pl.Int64, "AcimaDoPeso": pl.Float64}
     )
-    if not atributos.columns:
+    # Sem Diferença, nenhum valor passa do peso (e a % da Diferença absoluta seria 0/0)
+    if not atributos.columns or absoluta_total == 0:
         return vazia
     return (
         pl.concat([chaves, atributos], how="horizontal")
-        .unpivot(index=["Peso", "Diferenca"], variable_name="Atributo", value_name="Valor")
+        .unpivot(index=["Peso", "Absoluta"], variable_name="Atributo", value_name="Valor")
         .drop_nulls("Valor")
         .group_by("Atributo", "Valor")
-        .agg(
-            pl.col("Peso").sum(),
-            pl.col("Diferenca").sum(),
-            pl.col("Diferenca").abs().sum().alias("Absoluta"),
-            pl.col("Diferenca").is_not_null().any().alias("ComDiferenca"),
-        )
-        .filter("ComDiferenca")
-        .with_columns((pl.col("Absoluta") / absoluta_total - pl.col("Peso") / peso_total).alias("Concentracao"))
-        .sort(["Absoluta", "Atributo", "Valor"], descending=[True, False, False])
+        .agg(pl.col("Peso").sum(), pl.col("Absoluta").sum())
+        .with_columns((pl.col("Absoluta") / absoluta_total - pl.col("Peso") / peso_total).alias("AcimaDoPeso"))
+        .filter(pl.col("AcimaDoPeso") > 0)
+        .sort(["AcimaDoPeso", "Atributo", "Valor"], descending=[True, False, False])
         .select(vazia.columns)
     )
 
