@@ -338,9 +338,10 @@ def conciliar(
     Junção completa pela Chave dentro de cada Data-base; Diferença = A − B, com o lado que falta valendo 0.
     Uma Chave tem Diferença quando |Diferença| > Tolerância.
     """
+    # Uma Data-base existe numa base se ela tem qualquer linha nela, com ou sem Chave
+    datas_a, datas_b = set(base_a["Data"]), set(base_b["Data"])
     base_a, sem_chave_a = _preparar(base_a)
     base_b, sem_chave_b = _preparar(base_b)
-    datas_a, datas_b = set(base_a["Data"]), set(base_b["Data"])
     comuns = sorted(datas_a & datas_b)
     if not comuns:
         raise SemDataBaseComum("A Base A e a Base B não têm nenhuma Data-base em comum.")

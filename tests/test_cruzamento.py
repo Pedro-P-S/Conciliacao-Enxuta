@@ -927,3 +927,29 @@ def test_casa_com_linha_sem_chave_convive_com_os_outros_tipos_e_tira_o_sem_padra
         "Casa com linha sem Chave": 1,
         "Sem padrão": 1,
     }
+
+
+def test_data_base_com_so_linhas_sem_chave_numa_base_e_comum_e_entra_nos_totais():
+    a = base_com_data_bases({1: [("K1", 10_000)], 2: [("", 50_000)]})
+    b = base_com_data_bases({1: [("K1", 10_000)], 2: [("K1", 10_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.data_base == dia(2)
+    assert r.data_bases_so_em_a == ()
+    assert r.data_bases_so_em_b == ()
+    assert r.total_a == 50_000
+    assert r.total_b == 10_000
+    assert r.sem_chave_a == SemChave(linhas=1, soma=50_000)
+
+
+def test_base_inteira_de_linhas_sem_chave_ainda_tem_data_base_comum():
+    a = base([("", 50_000), (None, 2_000)])
+    b = base([("K1", 10_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.data_base == DIA
+    assert r.total_a == 52_000
+    assert r.total_b == 10_000
+    assert r.diferenca_total == 42_000
