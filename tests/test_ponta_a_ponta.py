@@ -960,7 +960,8 @@ def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_cl
 
 BASE_B_BOA = "Chave;Data;Valor\n1;30/09/2026;10,00\n"
 ERROS_DO_ARQUIVO_INTEIRO = {
-    # nome da Base A, conteúdo (None: não existe; "pasta": uma pasta com esse nome) e a mensagem esperada
+    # nome da Base A, conteúdo (None: não existe; "pasta": uma pasta com esse nome; lista: as linhas de um `.xlsx`)
+    # e a mensagem esperada
     "não existe": ("base_a.csv", None, "base_a.csv: o arquivo não existe."),
     "não abre": ("base_a.csv", "pasta", "base_a.csv: não deu para abrir o arquivo."),
     "vazio": ("base_a.csv", b"", "base_a.csv: o arquivo está vazio."),
@@ -996,6 +997,11 @@ ERROS_DO_ARQUIVO_INTEIRO = {
         b"Chave;Data;Valor;Valor\n1;30/09/2026;10,00;10,00\n",
         "base_a.csv: coluna repetida: Valor.",
     ),
+    "Valor e Valor no xlsx": (
+        "base_a.xlsx",
+        [["Chave", "Data", "Valor", "Valor"], [1, "30/09/2026", 10, 10]],
+        "base_a.xlsx: coluna repetida: Valor.",
+    ),
 }
 
 
@@ -1008,6 +1014,11 @@ def test_erro_do_arquivo_inteiro_da_mensagem_simples_com_o_arquivo_na_cli_e_na_j
     base_a, base_b = tmp_path / nome, tmp_path / "base_b.csv"
     if conteudo == "pasta":
         base_a.mkdir()
+    elif isinstance(conteudo, list):
+        wb = openpyxl.Workbook()
+        for linha in conteudo:
+            wb.active.append(linha)
+        wb.save(base_a)
     elif conteudo is not None:
         base_a.write_bytes(conteudo)
     base_b.write_text(BASE_B_BOA, encoding="utf-8")

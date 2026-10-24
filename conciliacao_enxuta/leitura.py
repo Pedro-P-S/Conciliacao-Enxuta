@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from decimal import Decimal
 from pathlib import Path
 
 import fastexcel
@@ -128,10 +129,12 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
 
 
-def _linhas_vazias_no_topo(caminho: Path) -> int:
-    """Quantas linhas vazias há antes do cabeçalho do `.xlsx`, que a leitura pula."""
+def _topo_do_xlsx(caminho: Path) -> tuple[int, list[str]]:
+    """Quantas linhas vazias há antes do cabeçalho do `.xlsx`, que a leitura pula, e o cabeçalho como o usuário
+    escreveu (o polars renomeia o segundo `Valor` para `Valor_1`)."""
     folha = fastexcel.read_excel(caminho).load_sheet(0, header_row=None, skip_rows=0, dtypes="string").to_polars()
-    return folha.select((~pl.all_horizontal(pl.all().is_null())).arg_max()).item()
+    vazias = folha.select((~pl.all_horizontal(pl.all().is_null())).arg_max()).item()
+    return vazias, [c for c in folha.row(vazias) if c is not None]
 
 
 def _como_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
@@ -169,14 +172,14 @@ def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
 
 def _tipo_lido(df: pl.DataFrame) -> pl.DataFrame:
     """Data e Valor do `.parquet` em tipos que a leitura entende: o `decimal` é número; o `categorical` e a
-    coluna só com nulos são texto. Os outros tipos (`bool`, `time`...) ficam, e viram ilegíveis adiante."""
-    def tipo(t: pl.DataType) -> pl.DataType:
-        if isinstance(t, pl.Decimal):
+    coluna só com nulos são texto. O `decimal` do Valor fica, para não passar por float. Os outros tipos (`bool`, `time`...) ficam, e viram ilegíveis adiante."""
+    def tipo(coluna: str, t: pl.DataType) -> pl.DataType:
+        if isinstance(t, pl.Decimal) and coluna == "Data":
             return pl.Float64
         if isinstance(t, (pl.Categorical, pl.Enum, pl.Null)):
             return pl.String
         return t
-    return df.with_columns(pl.col(c).cast(tipo(df.schema[c])) for c in ("Data", "Valor"))
+    return df.with_columns(pl.col(c).cast(tipo(c, df.schema[c])) for c in ("Data", "Valor"))
 
 
 def _data_de(tipo: pl.DataType) -> pl.Expr:
@@ -198,11 +201,18 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
         reais = pl.col("Valor").cast(pl.Int64, strict=False)
         limite = (2**63 - 1) // 100
         return pl.when(reais.is_between(-limite, limite)).then(reais * 100)
+    if isinstance(tipo, pl.Decimal):
+        # O `decimal` já é exato: o texto dele passa por `_centavos`, que arredonda uma vez só. O ponto do
+        # número é decimal, então vira vírgula (`10.505` não é milhar)
+        return _centavos(pl.col("Valor").cast(pl.String).str.replace(".", ",", literal=True))
     if tipo.is_numeric():
-        # Primeiro tira o ruído do float (1.005 * 100 = 100.4999...), depois arredonda o meio para longe do zero
-        # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Valor ilegível`
-        centavos = (pl.col("Valor") * 100).round(6).round(0, mode="half_away_from_zero")
-        return pl.when(pl.col("Valor").is_finite()).then(centavos).cast(pl.Int64, strict=False)
+        # O float vira o texto mais curto que o representa (`1.005`, `2.1249999999`, sem `1e+16`) e passa por
+        # `_centavos`, que arredonda uma vez só. NaN e infinito viram `NaN` e `Infinity`, que são ilegíveis
+        texto = pl.col("Valor").map_batches(
+            lambda s: pl.Series([None if v is None else format(Decimal(repr(v)), "f") for v in s.to_list()]),
+            return_dtype=pl.String,
+        )
+        return _centavos(texto.str.replace(".", ",", literal=True))
     if tipo == pl.String:
         return _centavos(pl.col("Valor"))
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
@@ -232,8 +242,11 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         raise ErroDeLeitura(f"{arquivo}: o arquivo está vazio.") from None
     except (fastexcel.FastExcelError, pl.exceptions.ComputeError):
         raise ErroDeLeitura(f"{arquivo}: o arquivo está corrompido.") from None
-    # O polars renomeia o cabeçalho igual de um `.csv` (`Valor;Valor` → `Valor`, `Valor_duplicated_0`)
-    nomes = [_comparavel(re.sub(r"_duplicated_\d+$", "", c)) for c in lido.columns]
+    # O polars renomeia o cabeçalho igual de um `.csv` (`Valor;Valor` → `Valor`, `Valor_duplicated_0`);
+    # no `.xlsx`, vale o cabeçalho cru da planilha
+    extensao = caminho.suffix.lower()
+    vazias, cabecalho = _topo_do_xlsx(caminho) if extensao == ".xlsx" else (0, lido.columns)
+    nomes = [_comparavel(re.sub(r"_duplicated_\d+$", "", c)) for c in cabecalho]
     for coluna in COLUNAS:
         if nomes.count(_comparavel(coluna)) > 1:
             raise ErroDeLeitura(f"{arquivo}: coluna repetida: {coluna}.")
@@ -252,10 +265,7 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     )
     # A linha é a que o usuário vê: no `.csv` o cabeçalho é a linha 1; no `.xlsx` é a linha da planilha, contando
     # as linhas vazias antes do cabeçalho; no `.parquet`, não há cabeçalho.
-    extensao = caminho.suffix.lower()
-    primeira_linha = 1 if extensao == ".parquet" else 2
-    if extensao == ".xlsx":
-        primeira_linha += _linhas_vazias_no_topo(caminho)
+    primeira_linha = (1 if extensao == ".parquet" else 2) + vazias
     como_veio = {c: _como_texto(c, df.schema[c]) for c in ("Data", "Valor")}
     vazio = {c: texto.str.strip_chars().fill_null("") == "" for c, texto in como_veio.items()}
     chave = _em_texto("Chave", df.schema["Chave"])

@@ -23,3 +23,4 @@
 - Arquivos alterados: `conciliacao_enxuta/leitura.py`, `tests/test_leitura.py`.
 
 **Onde está agora (depois da entrega):**
+`conciliacao_enxuta/leitura.py`: a Data em `_data` e `_data_de`; os tipos do `.parquet` em `_tipo_lido`; as linhas vazias antes do cabeçalho do `.xlsx` em `_topo_do_xlsx` (antes `_linhas_vazias_no_topo`), somadas à Linha em `ler_base`. Testes em `tests/test_leitura.py`.

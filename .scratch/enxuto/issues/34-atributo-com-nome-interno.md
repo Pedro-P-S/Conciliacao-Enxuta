@@ -21,3 +21,4 @@
 - Arquivos alterados: `conciliacao_enxuta/cruzamento.py`, `tests/test_cruzamento.py`, este ticket.
 
 **Onde está agora (depois da entrega):**
+`conciliacao_enxuta/cruzamento.py`, em `_por_atributo` (um frame por Atributo, juntados com `pl.concat`). Testes em `tests/test_cruzamento.py`: `test_atributo_com_nome_de_coluna_interna_concilia_normalmente`, `test_linha_sem_chave_que_aparece_antes_numa_data_base_so_de_a_casa_na_primeira_data_base_comum` e `test_valor_com_diferenca_igual_ao_peso_nao_aparece`.

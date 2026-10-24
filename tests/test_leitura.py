@@ -543,6 +543,27 @@ def test_valor_em_texto_e_arredondado_para_centavos_uma_vez_so(tmp_path, texto, 
     assert ler_base(caminho)[0]["Valor"].to_list() == [centavos]
 
 
+def test_valor_numerico_do_xlsx_e_do_parquet_e_arredondado_para_centavos_uma_vez_so(tmp_path):
+    floats = [2.1249999999, 0.00499999999, -1.23499999999]
+    xlsx = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor"])
+    for i, valor in enumerate(floats):
+        wb.active.append([i, date(2026, 9, 30), valor])
+    wb.save(xlsx)
+    parquet = tmp_path / "float.parquet"
+    pl.DataFrame({"Chave": ["0", "1", "2"], "Data": [date(2026, 9, 30)] * 3, "Valor": floats}).write_parquet(parquet)
+    decimais = [Decimal("2.1249999999"), Decimal("0.0049999999"), Decimal("123456789012345.67")]
+    decimal = tmp_path / "decimal.parquet"
+    pl.DataFrame(
+        {"Chave": ["0", "1", "2"], "Data": [date(2026, 9, 30)] * 3, "Valor": pl.Series(decimais, dtype=pl.Decimal(25, 10))}
+    ).write_parquet(decimal)
+
+    assert ler_base(xlsx)[0]["Valor"].to_list() == [212, 0, -123]
+    assert ler_base(parquet)[0]["Valor"].to_list() == [212, 0, -123]
+    assert ler_base(decimal)[0]["Valor"].to_list() == [212, 0, 12_345_678_901_234_567]
+
+
 def test_valor_e_data_de_tipos_do_parquet_sao_lidos_ou_viram_linha_rejeitada(tmp_path):
     caminho = tmp_path / "base.parquet"
     datas = [date(2026, 9, 30)] * 2
