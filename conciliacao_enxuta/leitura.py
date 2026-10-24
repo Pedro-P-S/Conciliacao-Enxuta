@@ -7,6 +7,7 @@ O `.csv` é lido todo como texto. O `.xlsx` e o `.parquet` mantêm os tipos nati
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from pathlib import Path
 
@@ -79,7 +80,8 @@ def _data(texto: pl.Expr) -> pl.Expr:
 def _texto_do_csv(caminho: Path) -> str:
     """O `.csv` em UTF-8 (com ou sem BOM) ou, se não for, em cp1252, como o Excel em português salva."""
     dados = caminho.read_bytes()
-    for codificacao in ("utf-8-sig", "cp1252"):
+    # O byte zero não é texto: é o sinal de UTF-16, que o cp1252 leria como lixo sem reclamar
+    for codificacao in ("utf-8-sig", "cp1252") if b"\x00" not in dados else ():
         try:
             return dados.decode(codificacao)
         except UnicodeDecodeError:
@@ -93,7 +95,12 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     if extensao == ".csv":
         texto = _texto_do_csv(caminho)
         separador = ";" if ";" in texto.partition("\n")[0] else ","  # `;` no cabeçalho é o comum no Brasil
-        return pl.read_csv(texto.encode("utf-8"), separator=separador, infer_schema=False)
+        try:
+            return pl.read_csv(texto.encode("utf-8"), separator=separador, infer_schema=False)
+        except pl.exceptions.ComputeError as erro:
+            if "more fields" in str(erro):
+                raise ErroDeLeitura(f"{caminho.name}: uma linha tem mais campos que o cabeçalho.") from None
+            raise
     if extensao == ".xlsx":
         # O tipo sai de todas as linhas, não de uma amostra: senão um texto depois da amostra numérica
         # vira vazio, e a linha some. Uma coluna com tipos misturados vem como texto.
@@ -180,7 +187,21 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
     caminho = Path(caminho)
     arquivo = caminho.name
-    lido = _ler_tabela(caminho)
+    try:
+        lido = _ler_tabela(caminho)
+    except FileNotFoundError:
+        raise ErroDeLeitura(f"{arquivo}: o arquivo não existe.") from None
+    except OSError:
+        raise ErroDeLeitura(f"{arquivo}: não deu para abrir o arquivo.") from None
+    except pl.exceptions.NoDataError:
+        raise ErroDeLeitura(f"{arquivo}: o arquivo está vazio.") from None
+    except (fastexcel.FastExcelError, pl.exceptions.ComputeError):
+        raise ErroDeLeitura(f"{arquivo}: o arquivo está corrompido.") from None
+    # O polars renomeia o cabeçalho igual de um `.csv` (`Valor;Valor` → `Valor`, `Valor_duplicated_0`)
+    nomes = [_comparavel(re.sub(r"_duplicated_\d+$", "", c)) for c in lido.columns]
+    for coluna in COLUNAS:
+        if nomes.count(_comparavel(coluna)) > 1:
+            raise ErroDeLeitura(f"{arquivo}: coluna repetida: {coluna}.")
     df = _renomear_colunas(lido)
     faltam = [c for c in COLUNAS if c not in df.columns]
     if faltam:

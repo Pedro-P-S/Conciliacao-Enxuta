@@ -94,11 +94,18 @@ def test_erro_de_leitura_vira_a_mensagem_simples_da_leitura(tmp_path, pasta_do_l
     assert "Traceback" not in resposta.mensagem
 
 
-def test_erro_inesperado_vira_mensagem_generica_e_o_traceback_vai_para_o_log(tmp_path, pasta_do_log):
-    pasta_com_nome_de_base = tmp_path / "base.csv"
-    pasta_com_nome_de_base.mkdir()
+@pytest.fixture
+def falha_inesperada(monkeypatch):
+    """Faz o pipeline falhar com um erro que ninguém previu."""
 
-    resposta = conciliar_pela_janela(str(pasta_com_nome_de_base), str(pasta_com_nome_de_base), "1,00")
+    def falhar(*_):
+        raise OSError(5, "falha simulada")
+
+    monkeypatch.setattr("conciliacao_enxuta.gui_estado.conciliar_arquivos", falhar)
+
+
+def test_erro_inesperado_vira_mensagem_generica_e_o_traceback_vai_para_o_log(tmp_path, pasta_do_log, falha_inesperada):
+    resposta = conciliar_pela_janela(str(tmp_path / "a.csv"), str(tmp_path / "b.csv"), "1,00")
 
     assert resposta.caminho is None
     assert str(pasta_do_log / "erros.log") in resposta.mensagem
@@ -109,12 +116,9 @@ def test_erro_inesperado_vira_mensagem_generica_e_o_traceback_vai_para_o_log(tmp
     assert "Errno" in log
 
 
-def test_o_log_acumula_um_traceback_por_falha(tmp_path, pasta_do_log):
-    pasta_com_nome_de_base = tmp_path / "base.csv"
-    pasta_com_nome_de_base.mkdir()
-
+def test_o_log_acumula_um_traceback_por_falha(tmp_path, pasta_do_log, falha_inesperada):
     for _ in range(2):
-        conciliar_pela_janela(str(pasta_com_nome_de_base), str(pasta_com_nome_de_base), "1,00")
+        conciliar_pela_janela(str(tmp_path / "a.csv"), str(tmp_path / "b.csv"), "1,00")
 
     assert (pasta_do_log / "erros.log").read_text(encoding="utf-8").count("Traceback") == 2
 

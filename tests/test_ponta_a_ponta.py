@@ -10,6 +10,7 @@ from conciliacao_enxuta.cli import main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
 from conciliacao_enxuta.excel import gravar_excel
 from conciliacao_enxuta.exemplo import DIFERENCAS_SEM_CHAVE, gerar_bases_exemplo
+from conciliacao_enxuta.gui_estado import conciliar_pela_janela
 from conciliacao_enxuta.leitura import ler_base
 
 FORMATO_REAIS = "#,##0.00"
@@ -928,3 +929,98 @@ def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_cl
     assert f"conciliacao_{gabarito.data_base.isoformat()}.xlsx" in saida.err
     assert "Traceback" not in saida.err and "Errno" not in saida.err
     assert {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in antes} == antes
+
+
+BASE_B_BOA = "Chave;Data;Valor\n1;30/09/2026;10,00\n"
+ERROS_DO_ARQUIVO_INTEIRO = {
+    # nome da Base A, conteúdo (None: não existe; "pasta": uma pasta com esse nome) e a mensagem esperada
+    "não existe": ("base_a.csv", None, "base_a.csv: o arquivo não existe."),
+    "não abre": ("base_a.csv", "pasta", "base_a.csv: não deu para abrir o arquivo."),
+    "vazio": ("base_a.csv", b"", "base_a.csv: o arquivo está vazio."),
+    "xlsx corrompido": ("base_a.xlsx", b"lixo", "base_a.xlsx: o arquivo está corrompido."),
+    "parquet corrompido": ("base_a.parquet", b"lixo", "base_a.parquet: o arquivo está corrompido."),
+    "campo a mais": (
+        "base_a.csv",
+        b"Chave;Data;Valor\n1;30/09/2026;10,00;x\n",
+        "base_a.csv: uma linha tem mais campos que o cabeçalho.",
+    ),
+    "UTF-16": (
+        "base_a.csv",
+        BASE_B_BOA.encode("utf-16"),
+        "base_a.csv: não foi possível ler o texto do arquivo. Salve o .csv como UTF-8.",
+    ),
+    "formato não suportado": (
+        "base_a.txt",
+        BASE_B_BOA.encode(),
+        "base_a.txt: formato não suportado. Use .csv, .xlsx ou .parquet.",
+    ),
+    "coluna fixa faltando": (
+        "base_a.csv",
+        b"Chave;Data\n1;30/09/2026\n",
+        "base_a.csv: falta a coluna Valor. Colunas encontradas: Chave, Data.",
+    ),
+    "Data e DATA": (
+        "base_a.csv",
+        b"Chave;Data;DATA;Valor\n1;30/09/2026;30/09/2026;10,00\n",
+        "base_a.csv: coluna repetida: Data.",
+    ),
+    "Valor;Valor": (
+        "base_a.csv",
+        b"Chave;Data;Valor;Valor\n1;30/09/2026;10,00;10,00\n",
+        "base_a.csv: coluna repetida: Valor.",
+    ),
+}
+
+
+@pytest.mark.parametrize("caso", ERROS_DO_ARQUIVO_INTEIRO)
+def test_erro_do_arquivo_inteiro_da_mensagem_simples_com_o_arquivo_na_cli_e_na_janela(
+    tmp_path, capsys, monkeypatch, caso
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    nome, conteudo, esperada = ERROS_DO_ARQUIVO_INTEIRO[caso]
+    base_a, base_b = tmp_path / nome, tmp_path / "base_b.csv"
+    if conteudo == "pasta":
+        base_a.mkdir()
+    elif conteudo is not None:
+        base_a.write_bytes(conteudo)
+    base_b.write_text(BASE_B_BOA, encoding="utf-8")
+
+    codigo = main(["conciliar", str(base_a), str(base_b)])
+    saida = capsys.readouterr()
+    resposta = conciliar_pela_janela(str(base_a), str(base_b), "1,00")
+
+    assert codigo == 1
+    assert saida.out == ""
+    assert saida.err.strip() == esperada
+    assert resposta.caminho is None
+    assert resposta.mensagem == esperada
+    assert not list(tmp_path.glob("conciliacao_*"))
+
+
+def test_pasta_de_saida_que_nao_existe_da_mensagem_simples(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    pasta = tmp_path / "nao_existe"
+
+    codigo = main(["conciliar", str(gabarito.base_a), str(gabarito.base_b), "--saida", str(pasta)])
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.out == ""
+    assert saida.err.strip() == f"{pasta}: a pasta de saída não existe."
+    assert not pasta.exists()
+
+
+def test_erro_inesperado_na_cli_sai_com_mensagem_simples_sem_traceback(tmp_path, capsys, monkeypatch):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    def falhar(*_):
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr("conciliacao_enxuta.cli.conciliar", falhar)
+
+    codigo = main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.out == ""
+    assert saida.err.strip() == "Algo deu errado e a conciliação não foi feita: falha simulada"

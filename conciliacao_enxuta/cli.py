@@ -14,13 +14,15 @@ from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
 
 
 class ArquivoNaoGravado(Exception):
-    """O `.xlsx` não pôde ser gravado (por exemplo, aberto no Excel); nem ele nem o `.html` mudaram."""
+    """O `.xlsx` não pôde ser gravado (aberto no Excel, ou a pasta de saída não existe); nem ele nem o `.html` mudaram."""
 
 
 def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path) -> tuple[Path, Path]:
     """Lê as duas bases, concilia e grava o `.xlsx` e depois o `.html` em `pasta`. Devolve os dois caminhos."""
     (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(base_a), ler_base(base_b)
     resultado = conciliar(lida_a, lida_b, tolerancia, rejeitadas_a, rejeitadas_b)
+    if not pasta.is_dir():
+        raise ArquivoNaoGravado(f"{pasta}: a pasta de saída não existe.")
     try:
         xlsx = gravar_excel(resultado, pasta)
     except PermissionError as erro:
@@ -60,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
         caminhos = conciliar_arquivos(args.base_a, args.base_b, args.tolerancia, args.saida or args.base_a.parent)
     except (ErroDeLeitura, SemDataBaseComum, ArquivoNaoGravado) as erro:
         print(erro, file=sys.stderr)
+        return 1
+    except Exception as erro:
+        print(f"Algo deu errado e a conciliação não foi feita: {erro}", file=sys.stderr)
         return 1
     for caminho in caminhos:
         print(caminho)
