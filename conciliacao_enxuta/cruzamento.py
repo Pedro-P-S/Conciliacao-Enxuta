@@ -124,6 +124,19 @@ def _sem_chave(fora: pl.DataFrame, data_base: date) -> SemChave:
     return SemChave(linhas=fora.height, soma=int(fora["Valor"].sum()))
 
 
+def _soltas(sem_chave_a: pl.DataFrame, sem_chave_b: pl.DataFrame) -> pl.DataFrame:
+    """Data, Valor, Base ("A" ou "B") e Diferenca das linhas sem Chave das duas bases, uma linha por vez.
+
+    A regra de sinal fica só aqui: cada linha sem Chave é uma Diferença do valor inteiro, +Valor em A, −Valor em B.
+    """
+    return pl.concat(
+        [
+            sem_chave_a.select("Data", "Valor", pl.lit("A").alias("Base"), pl.col("Valor").alias("Diferenca")),
+            sem_chave_b.select("Data", "Valor", pl.lit("B").alias("Base"), (-pl.col("Valor")).alias("Diferenca")),
+        ]
+    )
+
+
 def _tipo_do_erro(tolerancia: int) -> pl.Expr:
     """Todos os Tipos que se aplicam, separados por `; ` na ordem da spec; Sem padrão quando nenhum se aplica.
 
@@ -162,25 +175,15 @@ def _tipo_do_erro(tolerancia: int) -> pl.Expr:
     return pl.when(juntos == "").then(pl.lit(SEM_PADRAO)).otherwise(juntos).alias("Tipo")
 
 
-def _casas(
-    com_diferenca: pl.DataFrame,
-    sem_chave_a: pl.DataFrame,
-    sem_chave_b: pl.DataFrame,
-    comuns: list[date],
-    tolerancia: int,
-) -> pl.DataFrame:
+def _casas(com_diferenca: pl.DataFrame, soltas: pl.DataFrame, comuns: list[date], tolerancia: int) -> pl.DataFrame:
     """Chave e Casa: as linhas sem Chave que zeram, dentro da Tolerância, a Diferença que a Chave tinha.
 
     Cada valor de linha sem Chave de uma base é comparado uma vez só, na primeira Data-base comum em que aparece;
-    nas seguintes, é o mesmo lançamento. Na Base A, casa quando Diferença ≈ −Valor; na Base B, Diferença ≈ Valor.
+    nas seguintes, é o mesmo lançamento. `soltas` vem de `_soltas`; a linha zera a Chave quando a Diferença da
+    Chave ≈ −a Diferença da linha (na Base A, Diferença ≈ −Valor; na Base B, Diferença ≈ Valor).
     """
     linhas = (
-        pl.concat(
-            [
-                sem_chave_a.select("Data", "Valor", pl.lit("A").alias("Base"), (-pl.col("Valor")).alias("Alvo")),
-                sem_chave_b.select("Data", "Valor", pl.lit("B").alias("Base"), pl.col("Valor").alias("Alvo")),
-            ]
-        )
+        soltas.select("Data", "Valor", "Base", (-pl.col("Diferenca")).alias("Alvo"))
         .filter(pl.col("Data").is_in(comuns))
         .group_by("Base", "Valor")
         .agg(pl.col("Data").min(), pl.col("Alvo").first())
@@ -353,13 +356,8 @@ def conciliar(
         (pl.col("A").fill_null(0) - pl.col("B").fill_null(0)).alias("Diferenca")
     )
     com_diferenca = cruzado.filter(pl.col("Diferenca").abs() > tolerancia)
-    # Cada linha sem Chave é uma Diferença do valor inteiro: +Valor em A, −Valor em B, uma linha por vez
-    soltas = pl.concat(
-        [
-            sem_chave_a.select("Data", pl.col("Valor").alias("Diferenca"), pl.lit("A").alias("Base")),
-            sem_chave_b.select("Data", (-pl.col("Valor")).alias("Diferenca"), pl.lit("B").alias("Base")),
-        ]
-    ).filter(pl.col("Data").is_in(comuns), pl.col("Diferenca").abs() > tolerancia)
+    todas_as_soltas = _soltas(sem_chave_a, sem_chave_b)
+    soltas = todas_as_soltas.filter(pl.col("Data").is_in(comuns), pl.col("Diferenca").abs() > tolerancia)
     soltas_na_mais_recente = soltas.filter(pl.col("Data") == data_base)["Diferenca"]
 
     absoluta_por_data = dict(
@@ -373,7 +371,7 @@ def conciliar(
     b_na_mais_recente = base_b.filter(pl.col("Data") == data_base)
     operacoes = (
         na_mais_recente.join(
-            _casas(com_diferenca, sem_chave_a, sem_chave_b, comuns, tolerancia), on="Chave", how="left"
+            _casas(com_diferenca, todas_as_soltas, comuns, tolerancia), on="Chave", how="left"
         )
         .select(
             "Chave", pl.col("A").fill_null(0), pl.col("B").fill_null(0), "Diferenca", _tipo_do_erro(tolerancia), "Casa"

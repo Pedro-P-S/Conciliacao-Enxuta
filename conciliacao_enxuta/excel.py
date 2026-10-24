@@ -1,4 +1,4 @@
-"""Resultado → `.xlsx`. É aqui, e só aqui, que centavos viram reais."""
+"""Resultado → `.xlsx`. Este módulo e o `html` são os únicos lugares onde os centavos viram reais."""
 
 from __future__ import annotations
 
@@ -20,16 +20,6 @@ FORMATO_DATA = "DD/MM/YYYY"
 FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
 FORMATO_PERCENTUAL = "0.00%"
-# Os rótulos do Resumo, os mesmos no `.xlsx` e no `.html`
-ROTULOS_DO_QUADRO = (
-    "Data-base mais recente",
-    "Tolerância",
-    "Total A",
-    "Total B",
-    "Diferença total",
-    "Diferença absoluta",
-    "Chaves com Diferença",
-)
 TITULOS_SEM_CHAVE = ("Linhas sem Chave, fora do cruzamento", "Linhas", "Soma")
 TITULO_PROBLEMATICOS = "Atributos Problemáticos"
 TITULOS_POR_ATRIBUTO = ("Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso")
@@ -37,14 +27,38 @@ TITULO_GRAFICO_DA_IDADE = "Diferença absoluta por Idade da Diferença"
 TITULO_GRAFICO_DO_HISTORICO = "Diferença absoluta por Data-base"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 LIMITE_DE_LINHAS = 700_000
+# Os avisos de corte, com o limite e o total já com separador de milhar
+CORTE_DAS_OPERACOES = "Nem todas as operações com diferença couberam: mostrando {limite} de {total}, as maiores."
+CORTE_DOS_ERROS = "Nem todos os erros couberam: mostrando {limite} de {total}."
 
 
-def aviso_de_corte(limite: int, total: int) -> str:
-    """O aviso de que a aba Operações com Diferença mostra só as `limite` maiores de `total`."""
-    return (
-        f"Nem todas as operações com diferença couberam: mostrando {milhar(limite)} de {milhar(total)}, "
-        "as maiores."
-    )
+def quadro_do_resumo(resultado: Resultado) -> list[tuple[str, object, str, str]]:
+    """O quadro do Resumo, o mesmo no `.xlsx` e no `.html`: (rótulo, valor no Excel, formato no Excel, texto)."""
+    em_reais = [
+        ("Tolerância", resultado.tolerancia),
+        ("Total A", resultado.total_a),
+        ("Total B", resultado.total_b),
+        ("Diferença total", resultado.diferenca_total),
+        ("Diferença absoluta", resultado.diferenca_absoluta),
+    ]
+    return [
+        ("Data-base mais recente", resultado.data_base, FORMATO_DATA, f"{resultado.data_base:%d/%m/%Y}"),
+        *((rotulo, centavos / 100, FORMATO_REAIS, reais(centavos)) for rotulo, centavos in em_reais),
+        (
+            "Chaves com Diferença",
+            resultado.chaves_com_diferenca,
+            FORMATO_INTEIRO,
+            milhar(resultado.chaves_com_diferenca),
+        ),
+    ]
+
+
+def cortar(tabela: pl.DataFrame, limite: int, aviso: str) -> tuple[pl.DataFrame, str | None]:
+    """As `limite` primeiras linhas de `tabela` e o `aviso` do corte (CORTE_DAS_OPERACOES ou CORTE_DOS_ERROS)
+    preenchido; sem corte, a tabela inteira e None."""
+    if tabela.height <= limite:
+        return tabela, None
+    return tabela.head(limite), aviso.format(limite=milhar(limite), total=milhar(tabela.height))
 
 
 def avisos(resultado: Resultado, limite: int) -> list[str]:
@@ -52,8 +66,9 @@ def avisos(resultado: Resultado, limite: int) -> list[str]:
     lista = []
     if resultado.rejeitadas.height:
         lista.append(f"Linhas rejeitadas: {milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
-    if resultado.operacoes.height > limite:
-        lista.append(aviso_de_corte(limite, resultado.operacoes.height))
+    _, corte = cortar(resultado.operacoes, limite, CORTE_DAS_OPERACOES)
+    if corte:
+        lista.append(corte)
     return lista
 
 
@@ -100,16 +115,8 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     ws = wb.active
     ws.title = "Resumo"
 
-    quadro = [
-        (resultado.data_base, FORMATO_DATA),
-        (resultado.tolerancia / 100, FORMATO_REAIS),
-        (resultado.total_a / 100, FORMATO_REAIS),
-        (resultado.total_b / 100, FORMATO_REAIS),
-        (resultado.diferenca_total / 100, FORMATO_REAIS),
-        (resultado.diferenca_absoluta / 100, FORMATO_REAIS),
-        (resultado.chaves_com_diferenca, FORMATO_INTEIRO),
-    ]
-    for linha, (rotulo, (valor, formato)) in enumerate(zip(ROTULOS_DO_QUADRO, quadro), start=1):
+    quadro = quadro_do_resumo(resultado)
+    for linha, (rotulo, valor, formato, _) in enumerate(quadro, start=1):
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
 
@@ -141,8 +148,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
 
     _aba_por_tipo(wb, resultado)
     _aba_por_atributo(wb, resultado)
-    corte = aviso_de_corte(limite, resultado.operacoes.height) if resultado.operacoes.height > limite else None
-    _aba_operacoes(wb, resultado, limite, corte)
+    _aba_operacoes(wb, resultado, limite)
     _aba_erros(wb, resultado, limite)
     _graficos(wb, ws, resultado)
 
@@ -243,19 +249,25 @@ def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela) -> None:
         ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
 
 
-def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int, aviso_de_corte: str | None) -> None:
+def _aviso_na_linha_1(ws, aviso: str | None) -> int:
+    """Escreve o aviso de corte, se houver, na linha 1; devolve a linha do cabeçalho (2 com aviso, 1 sem)."""
+    if not aviso:
+        return 1
+    ws.cell(1, 1, aviso).font = Font(bold=True)
+    return 2
+
+
+def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None:
     """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro.
 
     Depois do Aberta desde vêm a Linha sem Chave e os Atributos, com o nome original. Mostra só as `limite`
     primeiras (as maiores); quando há corte, o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
     """
     ws = wb.create_sheet("Operações com Diferença")
-    linha_do_cabecalho = 1
-    if aviso_de_corte:
-        ws.cell(1, 1, aviso_de_corte).font = Font(bold=True)
-        linha_do_cabecalho = 2
+    operacoes, aviso = cortar(resultado.operacoes, limite, CORTE_DAS_OPERACOES)
+    linha_do_cabecalho = _aviso_na_linha_1(ws, aviso)
     # Operações e Atributos se alinham pela ordem das linhas: cortam juntos
-    operacoes, atributos = resultado.operacoes.head(limite), resultado.atributos.head(limite)
+    atributos = resultado.atributos.head(limite)
     titulos = [
         "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Linha sem Chave"
     ]
@@ -306,12 +318,8 @@ def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None
         schema={"Base": pl.String, "Data": pl.String, "Motivo": pl.String},
     )
     erros = pl.concat([data_bases, resultado.rejeitadas], how="diagonal").select(resultado.rejeitadas.columns)
-    linha_do_cabecalho = 1
-    if erros.height > limite:
-        aviso = f"Nem todos os erros couberam: mostrando {milhar(limite)} de {milhar(erros.height)}."
-        ws.cell(1, 1, aviso).font = Font(bold=True)
-        linha_do_cabecalho = 2
-        erros = erros.head(limite)
+    erros, aviso = cortar(erros, limite, CORTE_DOS_ERROS)
+    linha_do_cabecalho = _aviso_na_linha_1(ws, aviso)
     for coluna, titulo in enumerate(erros.columns, start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, valores in enumerate(erros.iter_rows(), start=linha_do_cabecalho + 1):

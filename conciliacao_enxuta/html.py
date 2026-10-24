@@ -1,4 +1,7 @@
-"""Resultado → `.html` com o Resumo do Excel, num arquivo só, sem script e sem nada buscado na internet."""
+"""Resultado → `.html` com o Resumo do Excel, num arquivo só, sem script e sem nada buscado na internet.
+
+Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,6 @@ from pathlib import Path
 from conciliacao_enxuta.cruzamento import Resultado
 from conciliacao_enxuta.excel import (
     LIMITE_DE_LINHAS,
-    ROTULOS_DO_QUADRO,
     TITULO_GRAFICO_DA_IDADE,
     TITULO_GRAFICO_DO_HISTORICO,
     TITULO_PROBLEMATICOS,
@@ -16,6 +18,7 @@ from conciliacao_enxuta.excel import (
     TITULOS_SEM_CHAVE,
     avisos,
     milhar,
+    quadro_do_resumo,
     reais,
     rotulo_da_faixa,
 )
@@ -37,18 +40,10 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
     `limite` é o mesmo do `.xlsx`: acima dele, o Resumo avisa do corte das operações.
     """
     caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.html"
-    quadro = [
-        f"{resultado.data_base:%d/%m/%Y}",
-        reais(resultado.tolerancia),
-        reais(resultado.total_a),
-        reais(resultado.total_b),
-        reais(resultado.diferenca_total),
-        reais(resultado.diferenca_absoluta),
-        milhar(resultado.chaves_com_diferenca),
-    ]
     partes = ["<table>"]
     partes += [
-        f'<tr><th>{escape(r)}</th><td class="n">{escape(v)}</td></tr>' for r, v in zip(ROTULOS_DO_QUADRO, quadro)
+        f'<tr><th>{escape(rotulo)}</th><td class="n">{escape(texto)}</td></tr>'
+        for rotulo, _, _, texto in quadro_do_resumo(resultado)
     ]
     partes.append("</table>")
 

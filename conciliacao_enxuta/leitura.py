@@ -13,6 +13,8 @@ from pathlib import Path
 import fastexcel
 import polars as pl
 
+from conciliacao_enxuta.excel import reais
+
 COLUNAS = ("Chave", "Data", "Valor")
 
 
@@ -164,15 +166,6 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return _centavos(pl.col("Valor"))
 
 
-def _em_reais(centavos: pl.Expr) -> pl.Expr:
-    """Centavos → `1.234.567,89`, ou `-1.234.567,89`, como o Excel mostra o Valor."""
-    # O milhar se põe de trás para a frente: `1234567` → `7654321` → `765.432.1` → `1.234.567`
-    inteiro = (centavos.abs() // 100).cast(pl.String).str.reverse()
-    milhar = inteiro.str.replace_all(r"(\d{3})", "${1}.").str.reverse().str.strip_chars_start(".")
-    resto = (centavos.abs() % 100).cast(pl.String).str.zfill(2)
-    return pl.concat_str(pl.when(centavos < 0).then(pl.lit("-")).otherwise(pl.lit("")), milhar, pl.lit(","), resto)
-
-
 def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
 
@@ -209,8 +202,8 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         (pl.int_range(pl.len()) + primeira_linha).alias("Linha"),
         pl.when(chave != "").then(chave).alias("Chave"),
         como_veio["Data"].alias("Data"),
-        # O Valor lido (a linha caiu pela Data) sai em reais; o que não pôde ser lido sai como veio
-        pl.when(base["Valor"].is_not_null()).then(_em_reais(base["Valor"])).otherwise(como_veio["Valor"]).alias("Valor"),
+        como_veio["Valor"].alias("Valor"),
+        base["Valor"].alias("Lido"),
         pl.when(vazio["Data"]).then(pl.lit("Data vazia"))
         .when(base["Data"].is_null()).then(pl.lit("Data ilegível"))
         .when(vazio["Valor"]).then(pl.lit("Valor vazio"))
@@ -220,4 +213,8 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     # A linha toda vazia (sem Chave, Data e Valor) é ignorada em silêncio
     toda_vazia = lidas["Chave"].is_null() & df.select(vazio["Data"] & vazio["Valor"]).to_series()
     rejeitada = lidas["Motivo"].is_not_null() & ~toda_vazia
-    return base.filter(~rejeitada & ~toda_vazia), lidas.filter(rejeitada)
+    rejeitadas = lidas.filter(rejeitada)
+    # O Valor lido (a linha caiu pela Data) sai em reais; o que não pôde ser lido sai como veio
+    em_reais = rejeitadas["Lido"].map_elements(reais, return_dtype=pl.String)
+    rejeitadas = rejeitadas.with_columns(pl.coalesce(em_reais, pl.col("Valor")).alias("Valor")).drop("Lido")
+    return base.filter(~rejeitada & ~toda_vazia), rejeitadas

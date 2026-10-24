@@ -311,6 +311,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     """
     pasta = Path(pasta)
     pasta.mkdir(parents=True, exist_ok=True)
+    formato = formato.lower()  # "CSV" grava `.csv`
     sorteio = random.Random(42)  # sempre as mesmas bases
 
     posicoes_a: dict[date, dict[str, int]] = {}

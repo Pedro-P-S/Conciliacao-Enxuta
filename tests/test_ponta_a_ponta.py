@@ -322,6 +322,15 @@ def valores_do_resumo(caminho) -> list:
     return [[c.value for c in linha] for linha in openpyxl.load_workbook(caminho)["Resumo"].iter_rows()]
 
 
+def test_gerador_de_exemplo_aceita_o_formato_em_maiuscula(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path, "CSV")
+    assert gabarito.base_a.name == "base_a.csv"
+    assert gabarito.base_b.name == "base_b.csv"
+
+    assert main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)]) == 0
+    conferir_quadro_do_resumo(tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx", gabarito)
+
+
 def test_base_a_em_xlsx_e_base_b_em_parquet_dao_o_mesmo_resumo_que_em_csv(tmp_path, capsys):
     em_csv = gerar_bases_exemplo(tmp_path / "csv")
     em_xlsx = gerar_bases_exemplo(tmp_path / "misturado", "xlsx")
