@@ -41,7 +41,7 @@ O `.venv` é do projeto, com os pacotes de `requirements.txt`. O caminho é abso
 
 ## Agentes
 
-O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer` e `reviewer`.
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer`, `code-reviewer` (skill code-review) e `reviewer` (skill ponytail-review).
 
 ## Issue tracker
 

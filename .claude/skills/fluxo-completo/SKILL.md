@@ -1,6 +1,6 @@
 ---
 name: fluxo-completo
-description: Orquestra o fluxo depois do grill-with-docs: spec → tickets → implementação → code review, cada etapa num subagente que usa a sua skill. Use quando o usuário pedir para rodar o fluxo completo.
+description: Orquestra o fluxo depois do grill-with-docs: spec → tickets → implementação → code review (code-review e ponytail-review), cada etapa num subagente que usa a sua skill. Use quando o usuário pedir para rodar o fluxo completo.
 ---
 Você é o orquestrador. NÃO faça nenhuma etapa você mesmo: cada uma vai para um subagente (ferramenta Agent com o `subagent_type` indicado), e você espera ele terminar antes de seguir. Os subagentes não veem esta conversa; tudo o que eles precisam vai em arquivo ou no prompt.
 
@@ -8,8 +8,8 @@ Você é o orquestrador. NÃO faça nenhuma etapa você mesmo: cada uma vai para
 1. **Spec:** `spec-writer`, passando o caminho do briefing. Confira que `docs/spec.md` mudou.
 2. **Tickets:** `ticket-writer`, passando as seções novas da spec. Confira que os tickets estão em `.scratch/enxuto/issues/`.
 3. **Implementação:** para CADA ticket, na ordem dos `Blocked by`, um `implementer` com o caminho daquele ticket. Um ticket por chamada. Depois de cada um, confira que o pytest passou e commite.
-4. **Review:** `reviewer`, passando o commit base do passo 0.
-5. Se houver problemas críticos, chame o `implementer` para corrigir só eles (passe `.scratch/enxuto/review.md`) e o `reviewer` de novo. No máximo 2 vezes.
+4. **Review:** duas reviews em paralelo, as duas com o commit base do passo 0: o `code-reviewer` (skill code-review, grava `.scratch/enxuto/review-code-review.md`) e o `reviewer` (skill ponytail-review, grava `.scratch/enxuto/review.md`).
+5. Se houver problemas críticos em qualquer uma, chame o `implementer` para corrigir só eles (passe os dois arquivos de review) e as duas reviews de novo. No máximo 2 vezes.
 6. No final, mostre um resumo curto: tickets feitos, problemas restantes e onde estão os arquivos.
 
 Regras:
