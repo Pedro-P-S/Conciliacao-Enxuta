@@ -2,6 +2,7 @@
 
 from datetime import date, time, timedelta
 from decimal import Decimal
+from time import perf_counter
 
 import openpyxl
 import polars as pl
@@ -558,10 +559,30 @@ def test_valor_numerico_do_xlsx_e_do_parquet_e_arredondado_para_centavos_uma_vez
     pl.DataFrame(
         {"Chave": ["0", "1", "2"], "Data": [date(2026, 9, 30)] * 3, "Valor": pl.Series(decimais, dtype=pl.Decimal(25, 10))}
     ).write_parquet(decimal)
+    # O `float32` vale pelo texto mais curto dele (`1.005`), como o mesmo `1,005` no `.csv`
+    float32 = tmp_path / "float32.parquet"
+    pl.DataFrame(
+        {"Chave": ["0"], "Data": [date(2026, 9, 30)], "Valor": pl.Series([1.005], dtype=pl.Float32)}
+    ).write_parquet(float32)
 
+    assert ler_base(float32)[0]["Valor"].to_list() == [101]
     assert ler_base(xlsx)[0]["Valor"].to_list() == [212, 0, -123]
     assert ler_base(parquet)[0]["Valor"].to_list() == [212, 0, -123]
     assert ler_base(decimal)[0]["Valor"].to_list() == [212, 0, 12_345_678_901_234_567]
+
+
+def test_parquet_grande_com_valor_float_e_lido_em_poucos_segundos(tmp_path):
+    caminho = tmp_path / "grande.parquet"
+    n = 200_000
+    pl.DataFrame(
+        {"Chave": [str(i) for i in range(n)], "Data": [date(2026, 9, 30)] * n, "Valor": [i / 100 for i in range(n)]}
+    ).write_parquet(caminho)
+
+    inicio = perf_counter()
+    base, _ = ler_base(caminho)
+
+    assert perf_counter() - inicio < 5
+    assert base["Valor"][12345] == 12345
 
 
 def test_valor_e_data_de_tipos_do_parquet_sao_lidos_ou_viram_linha_rejeitada(tmp_path):

@@ -194,8 +194,22 @@ def _data_de(tipo: pl.DataType) -> pl.Expr:
     return pl.lit(None, dtype=pl.Date).alias("Data")
 
 
+def _valor_float_em_texto(df: pl.DataFrame) -> pl.DataFrame:
+    """O Valor `float` vira o texto mais curto que o representa no próprio tipo (`1.005`, também em `float32`;
+    `2.1249999999`; sem `1e+16`), com vírgula decimal, para passar por `_centavos`, que arredonda uma vez só.
+    NaN e infinito viram `NaN` e `Infinity`, que são ilegíveis.
+
+    É uma coluna, calculada uma vez só: o `_centavos` usa a entrada dezenas de vezes."""
+    if not df.schema["Valor"].is_float():
+        return df
+    texto = [None if v is None else format(Decimal(v), "f").replace(".", ",") for v in df["Valor"].cast(pl.String)]
+    return df.with_columns(pl.Series("Valor", texto, dtype=pl.String))
+
+
 def _centavos_de(tipo: pl.DataType) -> pl.Expr:
-    """Valor numérico, em reais, vira centavos arredondados; texto passa por `_centavos`; outro tipo é ilegível."""
+    """Valor inteiro, em reais, vira centavos; `decimal` e texto passam por `_centavos`; outro tipo é ilegível.
+
+    O `float` chega aqui já em texto (ver `_valor_float_em_texto`)."""
     if tipo.is_integer():
         # O que não cabe em centavos Int64 vira nulo, e a linha sai como `Valor ilegível`
         reais = pl.col("Valor").cast(pl.Int64, strict=False)
@@ -205,14 +219,6 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
         # O `decimal` já é exato: o texto dele passa por `_centavos`, que arredonda uma vez só. O ponto do
         # número é decimal, então vira vírgula (`10.505` não é milhar)
         return _centavos(pl.col("Valor").cast(pl.String).str.replace(".", ",", literal=True))
-    if tipo.is_numeric():
-        # O float vira o texto mais curto que o representa (`1.005`, `2.1249999999`, sem `1e+16`) e passa por
-        # `_centavos`, que arredonda uma vez só. NaN e infinito viram `NaN` e `Infinity`, que são ilegíveis
-        texto = pl.col("Valor").map_batches(
-            lambda s: pl.Series([None if v is None else format(Decimal(repr(v)), "f") for v in s.to_list()]),
-            return_dtype=pl.String,
-        )
-        return _centavos(texto.str.replace(".", ",", literal=True))
     if tipo == pl.String:
         return _centavos(pl.col("Valor"))
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
@@ -257,10 +263,11 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
         raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
     df = _tipo_lido(df)
-    base = df.select(
+    para_ler = _valor_float_em_texto(df)
+    base = para_ler.select(
         _em_texto("Chave", df.schema["Chave"]),
         _data_de(df.schema["Data"]),
-        _centavos_de(df.schema["Valor"]),
+        _centavos_de(para_ler.schema["Valor"]),
         *(_atributo(c, tipo) for c, tipo in df.schema.items() if c not in COLUNAS),
     )
     # A linha é a que o usuário vê: no `.csv` o cabeçalho é a linha 1; no `.xlsx` é a linha da planilha, contando
