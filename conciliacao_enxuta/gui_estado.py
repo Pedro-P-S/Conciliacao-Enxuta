@@ -34,8 +34,14 @@ def _gravar_traceback(erro: Exception) -> Path:
     return log
 
 
+def _caminho_limpo(texto: str) -> str:
+    """Tira o espaço das pontas e as aspas do "Copiar como caminho" do Windows."""
+    return texto.strip().strip('"').strip()
+
+
 def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta:
     """Os textos da janela → o `.xlsx` e o `.html` na pasta da Base A (a resposta traz o do `.xlsx`), ou a mensagem do que falta."""
+    base_a, base_b = _caminho_limpo(base_a), _caminho_limpo(base_b)
     if not base_a.strip():
         return Resposta(mensagem="Escolha o arquivo da Base A.")
     if not base_b.strip():
@@ -50,5 +56,8 @@ def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta
     except (ErroDeLeitura, SemDataBaseComum, ArquivoNaoGravado) as erro:
         return Resposta(mensagem=str(erro))
     except Exception as erro:
-        log = _gravar_traceback(erro)
+        try:
+            log = _gravar_traceback(erro)
+        except Exception:
+            return Resposta(mensagem="Algo deu errado e a conciliação não foi feita. Os detalhes não puderam ser gravados no erros.log.")
         return Resposta(mensagem=f"Algo deu errado e a conciliação não foi feita. Os detalhes estão em {log}.")

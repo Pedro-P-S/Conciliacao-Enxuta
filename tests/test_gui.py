@@ -145,3 +145,25 @@ def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_ja
     assert resposta.mensagem.startswith(f"{xlsx.name}: ")
     assert "Traceback" not in resposta.mensagem and "Errno" not in resposta.mensagem
     assert {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in antes} == antes
+
+
+@pytest.mark.parametrize("embrulho", ['"{}"', "  {}  ", ' "{}" '])
+def test_caminho_colado_entre_aspas_ou_com_espaco_concilia_como_o_limpo(tmp_path, embrulho):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    resposta = conciliar_pela_janela(embrulho.format(gabarito.base_a), embrulho.format(gabarito.base_b), "1,00")
+
+    assert resposta.mensagem == ""
+    assert resposta.caminho == tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
+    assert resposta.caminho.exists()
+
+
+def test_erros_log_que_nao_grava_ainda_da_a_mensagem_simples(tmp_path, pasta_do_log, falha_inesperada):
+    pasta_do_log.parent.mkdir(parents=True)
+    pasta_do_log.write_text("um arquivo no lugar da pasta: o erros.log não tem onde ser gravado", encoding="utf-8")
+
+    resposta = conciliar_pela_janela(str(tmp_path / "a.csv"), str(tmp_path / "b.csv"), "1,00")
+
+    assert resposta.caminho is None
+    assert resposta.mensagem.startswith("Algo deu errado e a conciliação não foi feita.")
+    assert "Traceback" not in resposta.mensagem and "Errno" not in resposta.mensagem
