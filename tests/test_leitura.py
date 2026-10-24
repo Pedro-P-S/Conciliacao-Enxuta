@@ -471,3 +471,65 @@ def test_chave_numerica_longa_no_xlsx_sai_igual_mesmo_com_data_grande_demais_em_
         (4, "999", "1e+30", "5,00", "Data ilegível"),
         (5, "888", "46295", "1e+30", "Valor ilegível"),
     ]
+
+
+@pytest.mark.parametrize("texto", ["1,234.56", "1.2.3,4", "1.2,3", "0.500,00"])
+def test_valor_com_separadores_ambiguos_vira_linha_rejeitada(tmp_path, texto):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n", encoding="utf-8")
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base.height == 0
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", "30/09/2026", texto, "Valor ilegível")]
+
+
+@pytest.mark.parametrize(("texto", "centavos"), [("1.234", 123_400), ("0.125", 13), ("00.500", 50)])
+def test_ponto_sem_virgula_e_milhar_so_em_grupos_de_3_digitos_senao_decimal(tmp_path, texto, centavos):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n", encoding="utf-8")
+
+    assert ler_base(caminho)[0]["Valor"].to_list() == [centavos]
+
+
+@pytest.mark.parametrize("texto", ["99999999999999999999", "92233720368547758,08", "-92233720368547758,09"])
+def test_valor_em_texto_que_nao_cabe_em_centavos_int64_vira_linha_rejeitada(tmp_path, texto):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n2;30/09/2026;10,00\n", encoding="utf-8")
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Valor"].to_list() == [1000]
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", "30/09/2026", texto, "Valor ilegível")]
+
+
+def test_valor_inteiro_do_parquet_que_nao_cabe_em_centavos_int64_vira_linha_rejeitada(tmp_path):
+    caminho = tmp_path / "base.parquet"
+    pl.DataFrame(
+        {"Chave": ["1", "2", "3"], "Data": [date(2026, 9, 30)] * 3, "Valor": [10**17, 10, -(10**17)]},
+        schema_overrides={"Valor": pl.Int64},
+    ).write_parquet(caminho)
+    sem_sinal = tmp_path / "sem_sinal.parquet"
+    pl.DataFrame(
+        {"Chave": ["1", "2"], "Data": [date(2026, 9, 30)] * 2, "Valor": [2**64 - 1, 10]},
+        schema_overrides={"Valor": pl.UInt64},
+    ).write_parquet(sem_sinal)
+
+    base, rejeitadas = ler_base(caminho)
+    assert base["Valor"].to_list() == [1000]
+    assert rejeitadas["Motivo"].to_list() == ["Valor ilegível"] * 2
+    assert rejeitadas["Linha"].to_list() == [1, 3]
+
+    base, rejeitadas = ler_base(sem_sinal)
+    assert base["Valor"].to_list() == [1000]
+    assert rejeitadas["Motivo"].to_list() == ["Valor ilegível"]
+
+
+@pytest.mark.parametrize(
+    ("texto", "centavos"), [("0,00499999999999", 0), ("-1,23499999999999", -123), ("0,0050000000001", 1)]
+)
+def test_valor_em_texto_e_arredondado_para_centavos_uma_vez_so(tmp_path, texto, centavos):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n", encoding="utf-8")
+
+    assert ler_base(caminho)[0]["Valor"].to_list() == [centavos]

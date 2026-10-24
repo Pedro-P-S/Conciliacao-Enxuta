@@ -43,22 +43,29 @@ def _renomear_colunas(df: pl.DataFrame) -> pl.DataFrame:
 def _centavos(texto: pl.Expr) -> pl.Expr:
     """`R$ 1.234,56` → 123456; `(1.234,56)` e `-1.234,56` são negativos.
 
-    Com vírgula, o ponto é milhar e a vírgula é decimal. Sem vírgula, o ponto é milhar quando
-    separa grupos de 3 dígitos (`1.234`, `1.234.567`) e decimal nos outros casos (`1234.56`).
+    O ponto é milhar só em grupos de 3 dígitos com o primeiro sem zero na frente (`1.234`, `1.234.567`).
+    Com vírgula, a vírgula é decimal e outro ponto é ilegível (`1,234.56`, `1.2,3`). Sem vírgula, o ponto
+    fora desse formato é decimal (`0.125`, `1234.56`).
     """
     limpo = texto.str.replace_all(r"R\$|\s", "")
     # Só dígito, ponto e vírgula, com um `-` na frente ou entre parênteses; qualquer outro caractere é ilegível
     limpo = pl.when(limpo.str.contains(r"^(-?[\d.,]+|\([\d.,]+\))$")).then(limpo)
     negativo = limpo.str.starts_with("-") | (limpo.str.starts_with("(") & limpo.str.ends_with(")"))
     numero = limpo.str.replace_all(r"^[-(]|\)$", "")
-    ponto_e_milhar = numero.str.contains(",") | numero.str.contains(r"^\d{1,3}(\.\d{3})+$")
-    numero = pl.when(ponto_e_milhar).then(
+    milhar = r"[1-9]\d{0,2}(\.\d{3})+"
+    com_virgula = numero.str.contains(",")
+    separadores_legiveis = ~com_virgula | numero.str.contains(rf"^(\d*|{milhar}),\d*$")
+    numero = pl.when(com_virgula | numero.str.contains(rf"^{milhar}$")).then(
         numero.str.replace_all(r"\.", "").str.replace(",", ".")
     ).otherwise(numero)
-    # Decimal, e não float, para os centavos saírem exatos; mais de 2 casas arredonda o meio para longe do zero.
-    # O que não vira número (ou não cabe) fica nulo
-    centavos = numero.cast(pl.Decimal(38, 10), strict=False) * 100
-    absoluto = centavos.round(0, mode="half_away_from_zero").cast(pl.Int64, strict=False)
+    numero = pl.when(separadores_legiveis).then(numero)
+    # Os centavos saem dos dígitos, sem float: a 3ª casa decide o arredondamento, uma vez só, com o meio para
+    # longe do zero (o sinal fica de fora). O que não vira número (ou não cabe em Int64) fica nulo
+    numero = pl.when(numero.str.contains(r"^(\d+\.?\d*|\.\d+)$")).then(numero)
+    casas = (numero.str.extract(r"\.(\d*)$").fill_null("") + "000").str.slice(0, 3)
+    digitos = numero.str.extract(r"^(\d*)") + casas.str.slice(0, 2)
+    sobe = (casas.str.slice(2, 1) >= "5").cast(pl.Int64)
+    absoluto = (digitos.cast(pl.Decimal(38, 0), strict=False) + sobe).cast(pl.Int64, strict=False)
     return pl.when(negativo).then(-absoluto).otherwise(absoluto)
 
 
@@ -164,7 +171,10 @@ def _data_de(tipo: pl.DataType) -> pl.Expr:
 def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     """Valor numérico, em reais, vira centavos arredondados; texto passa por `_centavos`."""
     if tipo.is_integer():
-        return pl.col("Valor").cast(pl.Int64) * 100
+        # O que não cabe em centavos Int64 vira nulo, e a linha sai como `Valor ilegível`
+        reais = pl.col("Valor").cast(pl.Int64, strict=False)
+        limite = (2**63 - 1) // 100
+        return pl.when(reais.is_between(-limite, limite)).then(reais * 100)
     if tipo.is_numeric():
         # Primeiro tira o ruído do float (1.005 * 100 = 100.4999...), depois arredonda o meio para longe do zero
         # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Valor ilegível`
