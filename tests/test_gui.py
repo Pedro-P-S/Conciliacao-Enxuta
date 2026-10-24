@@ -1,6 +1,7 @@
 """GUI: `gui_estado` testado direto, sem Tkinter; a janela só pelo autoteste, em subprocesso."""
 
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -116,3 +117,20 @@ def test_o_log_acumula_um_traceback_por_falha(tmp_path, pasta_do_log):
         conciliar_pela_janela(str(pasta_com_nome_de_base), str(pasta_com_nome_de_base), "1,00")
 
     assert (pasta_do_log / "erros.log").read_text(encoding="utf-8").count("Traceback") == 2
+
+
+def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_janela(tmp_path, pasta_do_log):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    xlsx = conciliar_pela_janela(str(gabarito.base_a), str(gabarito.base_b), "1,00").caminho
+    html = xlsx.with_suffix(".html")
+    antes = {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in (xlsx, html)}
+    xlsx.chmod(stat.S_IREAD)  # como o Excel faz ao abri-lo
+    try:
+        resposta = conciliar_pela_janela(str(gabarito.base_a), str(gabarito.base_b), "5,00")
+    finally:
+        xlsx.chmod(stat.S_IWRITE | stat.S_IREAD)
+
+    assert resposta.caminho is None
+    assert resposta.mensagem.startswith(f"{xlsx.name}: ")
+    assert "Traceback" not in resposta.mensagem and "Errno" not in resposta.mensagem
+    assert {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in antes} == antes

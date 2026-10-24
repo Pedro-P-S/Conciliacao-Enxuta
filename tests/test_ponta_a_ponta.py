@@ -1,5 +1,6 @@
 """Seam 2: arquivos → CLI → `.xlsx`, lido com openpyxl e conferido contra o gabarito."""
 
+import stat
 from datetime import date, datetime
 
 import openpyxl
@@ -901,3 +902,29 @@ def test_texto_que_comeca_com_igual_sai_no_excel_como_texto_e_nao_como_formula(t
         (linha[0], linha[7]) for linha in wb["Operações com Diferença"].iter_rows(min_row=2) if linha[0].value == "=K"
     )
     assert (chave.data_type, filial.value, filial.data_type) == ("s", "=A1+1", "s")
+
+
+def travar_o_xlsx_depois_de_uma_execucao(tmp_path, gabarito):
+    """Gera os dois arquivos e deixa o `.xlsx` só de leitura, como o Excel faz ao abri-lo. Devolve {caminho: (bytes, mtime)}."""
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+    xlsx = tmp_path / f"conciliacao_{gabarito.data_base.isoformat()}.xlsx"
+    html = xlsx.with_suffix(".html")
+    xlsx.chmod(stat.S_IREAD)
+    return {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in (xlsx, html)}
+
+
+def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_cli(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+    antes = travar_o_xlsx_depois_de_uma_execucao(tmp_path, gabarito)
+    capsys.readouterr()
+    try:
+        codigo = main(["conciliar", str(gabarito.base_a), str(gabarito.base_b), "--tolerancia", "5,00"])
+    finally:
+        next(iter(antes)).chmod(stat.S_IWRITE | stat.S_IREAD)
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.out == ""
+    assert f"conciliacao_{gabarito.data_base.isoformat()}.xlsx" in saida.err
+    assert "Traceback" not in saida.err and "Errno" not in saida.err
+    assert {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in antes} == antes

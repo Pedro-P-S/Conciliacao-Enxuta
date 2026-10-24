@@ -13,6 +13,23 @@ from conciliacao_enxuta.html import gravar_html
 from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
 
 
+class ArquivoNaoGravado(Exception):
+    """O `.xlsx` não pôde ser gravado (por exemplo, aberto no Excel); nem ele nem o `.html` mudaram."""
+
+
+def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path) -> tuple[Path, Path]:
+    """Lê as duas bases, concilia e grava o `.xlsx` e depois o `.html` em `pasta`. Devolve os dois caminhos."""
+    (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(base_a), ler_base(base_b)
+    resultado = conciliar(lida_a, lida_b, tolerancia, rejeitadas_a, rejeitadas_b)
+    try:
+        xlsx = gravar_excel(resultado, pasta)
+    except PermissionError as erro:
+        raise ArquivoNaoGravado(
+            f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."
+        ) from erro
+    return xlsx, gravar_html(resultado, pasta)
+
+
 def tolerancia_em_centavos(texto: str) -> int:
     """'1,00' → 100; '0,50' → 50. Recusa o que não for um valor em reais finito e não negativo."""
     try:
@@ -40,12 +57,10 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        (base_a, rejeitadas_a), (base_b, rejeitadas_b) = ler_base(args.base_a), ler_base(args.base_b)
-        resultado = conciliar(base_a, base_b, args.tolerancia, rejeitadas_a, rejeitadas_b)
-    except (ErroDeLeitura, SemDataBaseComum) as erro:
+        caminhos = conciliar_arquivos(args.base_a, args.base_b, args.tolerancia, args.saida or args.base_a.parent)
+    except (ErroDeLeitura, SemDataBaseComum, ArquivoNaoGravado) as erro:
         print(erro, file=sys.stderr)
         return 1
-    pasta = args.saida or args.base_a.parent
-    print(gravar_excel(resultado, pasta))
-    print(gravar_html(resultado, pasta))
+    for caminho in caminhos:
+        print(caminho)
     return 0
