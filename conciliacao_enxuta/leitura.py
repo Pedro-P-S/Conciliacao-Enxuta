@@ -17,6 +17,7 @@ import polars as pl
 from conciliacao_enxuta.excel import reais
 
 COLUNAS = ("Chave", "Data", "Valor")
+MILHAR = r"[1-9]\d{0,2}(\.\d{3})+"  # o ponto como separador de milhar: `1.234`, `1.234.567`
 
 
 class ErroDeLeitura(ValueError):
@@ -52,10 +53,9 @@ def _centavos(texto: pl.Expr) -> pl.Expr:
     limpo = pl.when(limpo.str.contains(r"^(-?[\d.,]+|\([\d.,]+\))$")).then(limpo)
     negativo = limpo.str.starts_with("-") | (limpo.str.starts_with("(") & limpo.str.ends_with(")"))
     numero = limpo.str.replace_all(r"^[-(]|\)$", "")
-    milhar = r"[1-9]\d{0,2}(\.\d{3})+"
     com_virgula = numero.str.contains(",")
-    separadores_legiveis = ~com_virgula | numero.str.contains(rf"^(\d*|{milhar}),\d*$")
-    numero = pl.when(com_virgula | numero.str.contains(rf"^{milhar}$")).then(
+    separadores_legiveis = ~com_virgula | numero.str.contains(rf"^(\d*|{MILHAR}),\d*$")
+    numero = pl.when(com_virgula | numero.str.contains(rf"^{MILHAR}$")).then(
         numero.str.replace_all(r"\.", "").str.replace(",", ".")
     ).otherwise(numero)
     numero = pl.when(separadores_legiveis).then(numero)

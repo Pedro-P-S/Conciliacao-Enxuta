@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, SemDataBaseComum, conciliar
 from conciliacao_enxuta.excel import gravar_excel
 from conciliacao_enxuta.html import gravar_html
-from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
+from conciliacao_enxuta.leitura import MILHAR, ErroDeLeitura, ler_base
 
 
 class ArquivoNaoGravado(Exception):
@@ -33,14 +34,21 @@ def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path)
 
 
 def tolerancia_em_centavos(texto: str) -> int:
-    """'1,00' → 100; '0,50' → 50. Recusa o que não for um valor em reais finito e não negativo."""
-    try:
-        reais = Decimal(texto.strip().replace(",", "."))
-    except InvalidOperation:
-        reais = None
-    if reais is None or not reais.is_finite() or reais < 0:
+    """'1,00' → 100; '1.000' → 100000; '0,50' → 50. Os separadores seguem as regras do Valor.
+
+    Recusa o que não for um valor em reais não negativo, e o que não cabe em Int64 em centavos.
+    """
+    numero = texto.strip()
+    if "," in numero:
+        numero = numero.replace(".", "").replace(",", ".") if re.fullmatch(rf"(\d*|{MILHAR}),\d*", numero) else ""
+    elif re.fullmatch(MILHAR, numero):
+        numero = numero.replace(".", "")
+    if not re.fullmatch(r"\d+\.?\d*|\.\d+", numero):
         raise argparse.ArgumentTypeError(f"Tolerância inválida: {texto!r}. Use, por exemplo, 1,00.")
-    return int((reais * 100).to_integral_value())
+    centavos = int((Decimal(numero) * 100).to_integral_value())
+    if centavos > 2**63 - 1:
+        raise argparse.ArgumentTypeError(f"Tolerância grande demais: {texto!r}. Use, por exemplo, 1,00.")
+    return centavos
 
 
 def _parser() -> argparse.ArgumentParser:

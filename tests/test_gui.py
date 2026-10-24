@@ -29,7 +29,7 @@ def test_sem_base_b_da_mensagem_simples():
     assert resposta.mensagem == "Escolha o arquivo da Base B."
 
 
-@pytest.mark.parametrize("tolerancia", ["abc", "", "-1,00"])
+@pytest.mark.parametrize("tolerancia", ["abc", "", "-1,00", "1,234.56"])
 def test_tolerancia_invalida_da_mensagem_simples(tolerancia):
     resposta = conciliar_pela_janela("a.csv", "b.csv", tolerancia)
 
@@ -38,7 +38,7 @@ def test_tolerancia_invalida_da_mensagem_simples(tolerancia):
     assert "1,00" in resposta.mensagem
 
 
-@pytest.mark.parametrize(("tolerancia", "em_reais"), [("1,00", 1.00), ("0,5", 0.50), ("2", 2.00)])
+@pytest.mark.parametrize(("tolerancia", "em_reais"), [("1,00", 1.00), ("0,5", 0.50), ("2", 2.00), ("1.000", 1000.00)])
 def test_com_tudo_certo_devolve_o_xlsx_na_pasta_da_base_a(tmp_path, tolerancia, em_reais):
     gabarito = gerar_bases_exemplo(tmp_path)
 
@@ -51,6 +51,13 @@ def test_com_tudo_certo_devolve_o_xlsx_na_pasta_da_base_a(tmp_path, tolerancia, 
     resumo = openpyxl.load_workbook(resposta.caminho)["Resumo"]
     quadro = {rotulo: valor for rotulo, valor in resumo.iter_rows(max_col=2, values_only=True) if rotulo}
     assert quadro["Tolerância"] == em_reais
+
+
+def test_tolerancia_grande_demais_da_mensagem_simples():
+    resposta = conciliar_pela_janela("a.csv", "b.csv", "999999999999999999999")
+
+    assert resposta.caminho is None
+    assert resposta.mensagem.startswith("Tolerância grande demais")
 
 
 def test_tolerancia_padrao_da_janela_e_1_00():

@@ -195,7 +195,21 @@ def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(t
     assert linhas_de_erros(capsys.readouterr().out.splitlines()[0]) == [tuple(CABECALHO_DE_ERROS)]
 
 
-@pytest.mark.parametrize(("texto", "centavos"), [("0,50", 50), ("1,00", 100), ("2,5", 250), ("10", 1000)])
+@pytest.mark.parametrize(
+    ("texto", "centavos"),
+    [
+        ("0,50", 50),
+        ("1,00", 100),
+        ("2,5", 250),
+        ("10", 1000),
+        ("1.000", 100_000),
+        ("1.000,50", 100_050),
+        ("0.5", 50),
+        # O arredondamento para centavos fica como estava: o meio vai para o par
+        ("0,015", 2),
+        ("0,025", 2),
+    ],
+)
 def test_tolerancia_no_formato_brasileiro(tmp_path, capsys, texto, centavos):
     gabarito = gerar_bases_exemplo(tmp_path)
 
@@ -221,7 +235,7 @@ def test_saida_em_outra_pasta_sobrescreve_o_arquivo_existente(tmp_path, capsys):
     assert ler_resumo(esperado)["Chaves com Diferença"].value == gabarito.chaves_com_diferenca
 
 
-@pytest.mark.parametrize("texto", ["-1,00", "abc", "Infinity", "NaN"])
+@pytest.mark.parametrize("texto", ["-1,00", "abc", "Infinity", "NaN", "1,234.56", "1.2,3", "1e3"])
 def test_tolerancia_invalida_e_recusada_com_mensagem(tmp_path, capsys, texto):
     gabarito = gerar_bases_exemplo(tmp_path)
 
@@ -230,6 +244,19 @@ def test_tolerancia_invalida_e_recusada_com_mensagem(tmp_path, capsys, texto):
 
     assert saida.value.code == 2
     assert "Tolerância inválida" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
+def test_tolerancia_grande_demais_e_recusada_com_mensagem_simples(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    with pytest.raises(SystemExit) as saida:
+        main(["conciliar", str(gabarito.base_a), str(gabarito.base_b), "--tolerancia", "999999999999999999999"])
+
+    assert saida.value.code == 2
+    erro = capsys.readouterr().err
+    assert "Tolerância grande demais" in erro
+    assert "Traceback" not in erro
     assert not list(tmp_path.glob("*.xlsx"))
 
 
