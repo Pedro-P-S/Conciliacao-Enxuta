@@ -173,3 +173,66 @@ def test_html_nao_tem_script_nem_aponta_para_nada_fora_do_arquivo(tmp_path, caps
     referencias = [v for _, attrs in leitor.tags for k, v in attrs.items() if k in ("src", "href", "xlink:href")]
     assert all(v.startswith("#") for v in referencias)
     assert "url(" not in Path(linhas[1]).read_text(encoding="utf-8")
+
+
+def conciliar_csv(tmp_path, capsys, linhas_a: str, linhas_b: str):
+    """Grava as duas bases em `.csv`, concilia pela CLI e devolve os caminhos do `.xlsx` e do `.html`."""
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text(linhas_a, encoding="utf-8")
+    base_b.write_text(linhas_b, encoding="utf-8")
+    assert main(["conciliar", str(base_a), str(base_b)]) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+def test_o_percentual_do_html_arredonda_como_o_excel(tmp_path, capsys):
+    # Moeda X: 100% da Diferença absoluta e 3/32 do peso, 90,625% acima do peso; o Excel mostra 90,63%
+    xlsx, html = conciliar_csv(
+        tmp_path, capsys,
+        "Chave,Data,Valor,Moeda\n1,2026-09-30,0.03,X\n2,2026-09-30,0.29,Y\n",
+        "Chave,Data,Valor,Moeda\n1,2026-09-30,10.03,X\n2,2026-09-30,0.29,Y\n",
+    )
+
+    celula = next(
+        linha[3] for linha in openpyxl.load_workbook(xlsx)["Resumo"].iter_rows() if linha[1].value == "X"
+    )
+    assert (celula.value, celula.number_format) == (0.90625, "0.00%")
+    assert depois(ler_html(html).textos, "X", 2) == ["10,00", "90,63%"]
+
+
+def textos_do_grafico_de_linha(textos: list[str]) -> list[str]:
+    """Os textos do gráfico da Diferença absoluta por Data-base, o último do `.html`, sem o título."""
+    return textos[textos.index("Diferença absoluta por Data-base") + 1 :]
+
+
+def test_sem_diferenca_o_eixo_do_grafico_mostra_0(tmp_path, capsys):
+    linhas = "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n"
+    _, html = conciliar_csv(tmp_path, capsys, linhas, linhas)
+
+    assert textos_do_grafico_de_linha(ler_html(html).textos) == ["0,00", "29/09/2026", "30/09/2026"]
+
+
+def test_com_uma_data_base_so_o_grafico_de_linha_traz_o_ponto_e_a_data_uma_vez(tmp_path, capsys):
+    _, html = conciliar_csv(
+        tmp_path, capsys, "Chave,Data,Valor\n1,2026-09-30,10.00\n", "Chave,Data,Valor\n1,2026-09-30,15.00\n"
+    )
+
+    leitor = ler_html(html)
+    assert textos_do_grafico_de_linha(leitor.textos) == ["5,00", "0,00", "30/09/2026"]
+    assert "circle" in [tag for tag, _ in leitor.tags]
+
+
+def test_atributo_com_caractere_de_controle_sai_sem_ele_e_com_menor_e_comercial_e_aspas_sai_como_texto(
+    tmp_path, capsys
+):
+    xlsx, html = conciliar_csv(
+        tmp_path, capsys,
+        'Chave,Data,Valor,Moeda\n1,2026-09-30,10.00,Le\x01gado\n2,2026-09-30,10.00,"<b> & ""x"""\n'
+        "3,2026-09-30,100.00,BRL\n",
+        "Chave,Data,Valor,Moeda\n1,2026-09-30,0,Z\n2,2026-09-30,0,Z\n3,2026-09-30,100.00,BRL\n",
+    )
+
+    no_excel = {linha[1].value for linha in openpyxl.load_workbook(xlsx)["Resumo"].iter_rows() if linha[0].value == "Moeda"}
+    assert no_excel == {"Legado", '<b> & "x"'}
+    textos = ler_html(html).textos
+    assert {"Legado", '<b> & "x"'} <= set(textos)
+    assert "b" not in [tag for tag, _ in ler_html(html).tags]

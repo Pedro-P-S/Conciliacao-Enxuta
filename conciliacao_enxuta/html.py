@@ -5,8 +5,11 @@ Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from pathlib import Path
+
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from conciliacao_enxuta.cruzamento import Resultado
 from conciliacao_enxuta.excel import (
@@ -63,9 +66,9 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
         partes.append(f"<h2>{escape(TITULO_PROBLEMATICOS)}</h2>")
         partes.append(_cabecalho(TITULOS_POR_ATRIBUTO))
         for atributo, valor, absoluta, acima_do_peso in resultado.atributos_problematicos.iter_rows():
-            percentual = f"{acima_do_peso * 100:.2f}%".replace(".", ",")
+            percentual = f"{_percentual(acima_do_peso)}%".replace(".", ",")
             partes.append(
-                f'<tr><td>{escape(atributo)}</td><td>{escape(valor)}</td><td class="n">{reais(absoluta)}</td>'
+                f'<tr><td>{_do_arquivo(atributo)}</td><td>{_do_arquivo(valor)}</td><td class="n">{reais(absoluta)}</td>'
                 f'<td class="n">{percentual}</td></tr>'
             )
         partes.append("</table>")
@@ -82,6 +85,16 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
     )
     caminho.write_text(pagina, encoding="utf-8")
     return caminho
+
+
+def _do_arquivo(texto: str) -> str:
+    """Um texto que veio do arquivo (Atributo e o seu valor) sem os caracteres de controle, como no Excel, e escapado."""
+    return escape(ILLEGAL_CHARACTERS_RE.sub("", texto))
+
+
+def _percentual(fracao: float) -> Decimal:
+    """A fração em %, com 2 casas, como o Excel mostra `0.00%`: com 15 dígitos e o meio arredondado para cima."""
+    return (Decimal(f"{fracao:.15g}") * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
 
 def _cabecalho(titulos: tuple[str, ...]) -> str:
@@ -112,10 +125,10 @@ def _grafico_de_linha(resultado: Resultado) -> str:
     """A Diferença absoluta por Data-base, com a primeira e a última data no eixo e o maior valor no topo."""
     esquerda, topo, largura, altura = 110, 30, 680, 220
     historico = resultado.historico
-    maior = max((absoluta for _, absoluta in historico), default=0) or 1
+    maior = max((absoluta for _, absoluta in historico), default=0)
     passo = largura / max(len(historico) - 1, 1)
     pontos = " ".join(
-        f"{esquerda + i * passo:.1f},{topo + altura - absoluta / maior * altura:.1f}"
+        f"{esquerda + i * passo:.1f},{topo + altura - absoluta / (maior or 1) * altura:.1f}"
         for i, (_, absoluta) in enumerate(historico)
     )
     base = topo + altura
@@ -124,11 +137,18 @@ def _grafico_de_linha(resultado: Resultado) -> str:
         f'<text x="0" y="16" font-weight="bold">{escape(TITULO_GRAFICO_DO_HISTORICO)}</text>',
         f'<line x1="{esquerda}" y1="{topo}" x2="{esquerda}" y2="{base}" stroke="#999"/>',
         f'<line x1="{esquerda}" y1="{base}" x2="{esquerda + largura}" y2="{base}" stroke="#999"/>',
-        f'<text x="{esquerda - 6}" y="{topo + 5}" text-anchor="end">{reais(maior)}</text>',
         f'<text x="{esquerda - 6}" y="{base + 5}" text-anchor="end">0,00</text>',
         f'<polyline points="{pontos}" fill="none" stroke="{COR}" stroke-width="2"/>',
     ]
-    if historico:
+    # Sem Diferença, o eixo só mostra o 0, como no Excel
+    if maior:
+        linhas.insert(4, f'<text x="{esquerda - 6}" y="{topo + 5}" text-anchor="end">{reais(maior)}</text>')
+    if len(historico) == 1:
+        # Uma linha de um ponto só não aparece: o ponto, e a data uma vez
+        x, y = pontos.split(",")
+        linhas.append(f'<circle cx="{x}" cy="{y}" r="4" fill="{COR}"/>')
+        linhas.append(f'<text x="{esquerda}" y="{base + 20}">{historico[0][0]:%d/%m/%Y}</text>')
+    elif historico:
         linhas.append(f'<text x="{esquerda}" y="{base + 20}">{historico[0][0]:%d/%m/%Y}</text>')
         linhas.append(
             f'<text x="{esquerda + largura}" y="{base + 20}" text-anchor="end">{historico[-1][0]:%d/%m/%Y}</text>'
