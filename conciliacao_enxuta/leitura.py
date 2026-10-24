@@ -75,7 +75,10 @@ def _data(texto: pl.Expr) -> pl.Expr:
     Aceita também `2026-01-31 00:00:00`, como vem a data nativa de um `.xlsx` numa coluna de tipos misturados.
     """
     texto = texto.str.strip_chars()
+    # O ano tem 4 dígitos (`31/01/26` é ilegível); a data do Excel vai até 2958465 (31/12/9999)
+    texto = pl.when(texto.str.contains(r"^\d+$|^\d{1,2}/\d{1,2}/\d{4}$|^\d{4}-")).then(texto)
     dias_do_excel = texto.str.extract(r"^(\d{1,7})$").cast(pl.Int64)
+    dias_do_excel = pl.when(dias_do_excel <= 2958465).then(dias_do_excel)
     return pl.coalesce(
         texto.str.to_date("%d/%m/%Y", strict=False),
         texto.str.to_date("%Y-%m-%d", strict=False),
@@ -125,6 +128,12 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
 
 
+def _linhas_vazias_no_topo(caminho: Path) -> int:
+    """Quantas linhas vazias há antes do cabeçalho do `.xlsx`, que a leitura pula."""
+    folha = fastexcel.read_excel(caminho).load_sheet(0, header_row=None, skip_rows=0, dtypes="string").to_polars()
+    return folha.select((~pl.all_horizontal(pl.all().is_null())).arg_max()).item()
+
+
 def _como_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
     """Coluna em texto; número redondo como inteiro (`123.0` → `123`, `1e17` → `100000000000000000`).
 
@@ -158,18 +167,32 @@ def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
     return pl.when(texto != "").then(texto).alias(coluna.lstrip("\ufeff"))
 
 
+def _tipo_lido(df: pl.DataFrame) -> pl.DataFrame:
+    """Data e Valor do `.parquet` em tipos que a leitura entende: o `decimal` é número; o `categorical` e a
+    coluna só com nulos são texto. Os outros tipos (`bool`, `time`...) ficam, e viram ilegíveis adiante."""
+    def tipo(t: pl.DataType) -> pl.DataType:
+        if isinstance(t, pl.Decimal):
+            return pl.Float64
+        if isinstance(t, (pl.Categorical, pl.Enum, pl.Null)):
+            return pl.String
+        return t
+    return df.with_columns(pl.col(c).cast(tipo(df.schema[c])) for c in ("Data", "Valor"))
+
+
 def _data_de(tipo: pl.DataType) -> pl.Expr:
-    """Data nativa fica como está; número é a data do Excel; texto passa por `_data`."""
+    """Data nativa fica como está; número é a data do Excel; texto passa por `_data`; outro tipo é ilegível."""
     if tipo in (pl.Date, pl.Datetime):
         return pl.col("Data").cast(pl.Date)
     if tipo.is_numeric():
         # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Data ilegível`
         return _data(pl.col("Data").cast(pl.Int64, strict=False).cast(pl.String))
-    return _data(pl.col("Data"))
+    if tipo == pl.String:
+        return _data(pl.col("Data"))
+    return pl.lit(None, dtype=pl.Date).alias("Data")
 
 
 def _centavos_de(tipo: pl.DataType) -> pl.Expr:
-    """Valor numérico, em reais, vira centavos arredondados; texto passa por `_centavos`."""
+    """Valor numérico, em reais, vira centavos arredondados; texto passa por `_centavos`; outro tipo é ilegível."""
     if tipo.is_integer():
         # O que não cabe em centavos Int64 vira nulo, e a linha sai como `Valor ilegível`
         reais = pl.col("Valor").cast(pl.Int64, strict=False)
@@ -180,7 +203,9 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
         # NaN, infinito ou grande demais para Int64 vira nulo, e a linha sai como `Valor ilegível`
         centavos = (pl.col("Valor") * 100).round(6).round(0, mode="half_away_from_zero")
         return pl.when(pl.col("Valor").is_finite()).then(centavos).cast(pl.Int64, strict=False)
-    return _centavos(pl.col("Valor"))
+    if tipo == pl.String:
+        return _centavos(pl.col("Valor"))
+    return pl.lit(None, dtype=pl.Int64).alias("Valor")
 
 
 def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -218,14 +243,19 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         encontradas = ", ".join(c.lstrip("﻿").strip() for c in lido.columns)
         falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
         raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
+    df = _tipo_lido(df)
     base = df.select(
         _em_texto("Chave", df.schema["Chave"]),
         _data_de(df.schema["Data"]),
         _centavos_de(df.schema["Valor"]),
         *(_atributo(c, tipo) for c, tipo in df.schema.items() if c not in COLUNAS),
     )
-    # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; no `.parquet`, não há cabeçalho.
-    primeira_linha = 1 if caminho.suffix.lower() == ".parquet" else 2
+    # A linha é a que o usuário vê: no `.csv` o cabeçalho é a linha 1; no `.xlsx` é a linha da planilha, contando
+    # as linhas vazias antes do cabeçalho; no `.parquet`, não há cabeçalho.
+    extensao = caminho.suffix.lower()
+    primeira_linha = 1 if extensao == ".parquet" else 2
+    if extensao == ".xlsx":
+        primeira_linha += _linhas_vazias_no_topo(caminho)
     como_veio = {c: _como_texto(c, df.schema[c]) for c in ("Data", "Valor")}
     vazio = {c: texto.str.strip_chars().fill_null("") == "" for c, texto in como_veio.items()}
     chave = _em_texto("Chave", df.schema["Chave"])

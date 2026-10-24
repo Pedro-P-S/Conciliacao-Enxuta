@@ -1,6 +1,7 @@
 """Leitura de `.csv`, `.xlsx` e `.parquet`: nomes de coluna flexíveis, Valor e Data no formato brasileiro ou nativos."""
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
+from decimal import Decimal
 
 import openpyxl
 import polars as pl
@@ -86,6 +87,13 @@ def test_data_em_dd_mm_aaaa_aaaa_mm_dd_ou_data_do_excel(tmp_path, texto):
     assert ler_base(caminho)[0]["Data"].to_list() == [date(2026, 1, 31)]
 
 
+def test_a_ultima_data_do_excel_e_31_12_9999(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text("Chave;Data;Valor\n1;2958465;10\n", encoding="utf-8")
+
+    assert ler_base(caminho)[0]["Data"].to_list() == [date(9999, 12, 31)]
+
+
 def test_chave_com_espaco_nas_pontas_em_a_cruza_com_a_mesma_chave_em_b(tmp_path):
     base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
     base_a.write_text("Chave;Data;Valor\n 0123 ;30/09/2026;10,00\n", encoding="utf-8")
@@ -96,7 +104,7 @@ def test_chave_com_espaco_nas_pontas_em_a_cruza_com_a_mesma_chave_em_b(tmp_path)
     assert resultado.chaves_com_diferenca == 0
 
 
-@pytest.mark.parametrize("texto", ["31/02/2026", "ontem"])
+@pytest.mark.parametrize("texto", ["31/02/2026", "ontem", "31/01/26", "26-01-31", "2958466"])
 def test_data_ilegivel_nao_some_em_silencio(tmp_path, texto):
     caminho = tmp_path / "base.csv"
     caminho.write_text(f"Chave;Data;Valor\n1;{texto};10\n", encoding="utf-8")
@@ -533,3 +541,42 @@ def test_valor_em_texto_e_arredondado_para_centavos_uma_vez_so(tmp_path, texto, 
     caminho.write_text(f"Chave;Data;Valor\n1;30/09/2026;{texto}\n", encoding="utf-8")
 
     assert ler_base(caminho)[0]["Valor"].to_list() == [centavos]
+
+
+def test_valor_e_data_de_tipos_do_parquet_sao_lidos_ou_viram_linha_rejeitada(tmp_path):
+    caminho = tmp_path / "base.parquet"
+    datas = [date(2026, 9, 30)] * 2
+    colunas = {
+        "decimal": (pl.Series(datas), pl.Series([Decimal("10.505"), Decimal("-2")], dtype=pl.Decimal(10, 3))),
+        "categorical": (pl.Series(["30/09/2026", "ontem"], dtype=pl.Categorical), pl.Series(["1,50", "2"], dtype=pl.Categorical)),
+        "bool": (pl.Series(datas), pl.Series([True, False])),
+        "time": (pl.Series([time(10), time(11)]), pl.Series([1.0, 2.0])),
+        "nulos": (pl.Series([None, None]), pl.Series(["1", "2"])),
+    }
+    lidos = {}
+    for nome, (data, valor) in colunas.items():
+        pl.DataFrame({"Chave": ["1", "2"], "Data": data, "Valor": valor}).write_parquet(caminho)
+        base, rejeitadas = ler_base(caminho)
+        lidos[nome] = (base["Valor"].to_list(), rejeitadas["Motivo"].to_list())
+
+    assert lidos == {
+        "decimal": ([1051, -200], []),
+        "categorical": ([150], ["Data ilegível"]),
+        "bool": ([], ["Valor ilegível", "Valor ilegível"]),
+        "time": ([], ["Data ilegível", "Data ilegível"]),
+        "nulos": ([], ["Data vazia", "Data vazia"]),
+    }
+
+
+def test_a_linha_rejeitada_do_xlsx_conta_as_linhas_vazias_antes_do_cabecalho(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A3"], ws["B3"], ws["C3"] = "Chave", "Data", "Valor"  # linhas 1 e 2 vazias
+    ws.append([1, date(2026, 9, 30), 10])
+    ws.append([2, "31/01/26", 10])  # linha 5
+    wb.save(caminho)
+
+    _, rejeitadas = ler_base(caminho)
+
+    assert rejeitadas_em_tuplas(rejeitadas) == [(5, "2", "31/01/26", "10,00", "Data ilegível")]
