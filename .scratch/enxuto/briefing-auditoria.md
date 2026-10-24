@@ -37,6 +37,7 @@ Origem: a auditoria do repositório em `.scratch/enxuto/review.md` (seção "Aud
 
 ## Fora, porque a spec não responde (perguntas para o usuário)
 
+- **Cortados do briefing (só gosto, sem bug nem divergência):** itens 13, 14, 19, 20, 21 (menos o gerador com `"CSV"`, que fica) e 24. Não entram na spec.
 - Críticos 13 (corte da aba Por Atributo), 14 (célula Linha sem Chave acima de 32.767 caracteres) e 15 (Chave numérica de mais de 15 dígitos no `.xlsx`).
 - Sugestão 8 (onde a Tolerância mora) e o arredondamento da Tolerância (pergunta 8).
 - Nice to have 16: Atributo com nome de coluna do relatório (`Valor A`, `Tipo do Erro`) e a soma acima do `Int64` numa Chave.
