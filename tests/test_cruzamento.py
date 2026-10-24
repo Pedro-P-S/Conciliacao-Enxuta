@@ -953,3 +953,43 @@ def test_base_inteira_de_linhas_sem_chave_ainda_tem_data_base_comum():
     assert r.total_a == 52_000
     assert r.total_b == 10_000
     assert r.diferenca_total == 42_000
+
+
+def test_linha_sem_chave_que_aparece_antes_numa_data_base_so_de_a_casa_na_primeira_data_base_comum():
+    # Dia 1 só existe na Base A e já traz a linha de 5.000; ela é comparada no dia 2, a primeira Data-base comum
+    a = base_com_data_bases({1: [("", 5_000)], 2: [("x", 10_000), ("", 5_000)]})
+    b = base_com_data_bases({2: [("x", 15_000)]})
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.data_bases_so_em_a == (dia(1),)
+    assert casas(r, "x") == [(5_000, dia(2), "A")]
+
+
+def test_valor_com_diferenca_igual_ao_peso_nao_aparece():
+    # P e Q: cada um com metade do peso e metade da Diferença, acima do peso exatamente 0
+    a = base_com_atributos([("p", 10_000, {"Produto": "P"}), ("q", 10_000, {"Produto": "Q"})])
+    b = base([("p", 5_000), ("q", 5_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.height == 0
+
+
+@pytest.mark.parametrize("nome", ["Peso", "Absoluta", "Atributo"])
+def test_atributo_com_nome_de_coluna_interna_concilia_normalmente(nome):
+    a = base_com_atributos(
+        [
+            ("legado", 1_000, {nome: "Legado"}),
+            ("atual_1", 100_000, {nome: "Atual"}),
+            ("atual_2", 100_000, {nome: "Atual"}),
+        ]
+    )
+    b = base([("legado", 51_000), ("atual_1", 100_000), ("atual_2", 100_000)])
+
+    r = conciliar(a, b, tolerancia=100)
+
+    assert r.por_atributo.select("Atributo", "Valor", "Absoluta").rows() == [(nome, "Legado", 50_000)]
+    assert r.operacoes["Chave"].to_list() == ["legado"]
+    assert r.atributos.columns == [nome]
+    assert r.atributos[nome].to_list() == ["Legado"]

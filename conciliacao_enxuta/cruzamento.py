@@ -274,9 +274,13 @@ def _por_atributo(
     # Sem Diferença, nenhum valor passa do peso (e a % da Diferença absoluta seria 0/0)
     if not atributos.columns or absoluta_total == 0:
         return vazia
+    # Um Atributo de cada vez ao lado das Chaves, e não um unpivot das colunas juntas, para o nome do Atributo
+    # nunca bater com Peso, Absoluta ou Atributo
     return (
-        pl.concat([chaves, atributos], how="horizontal")
-        .unpivot(index=["Peso", "Absoluta"], variable_name="Atributo", value_name="Valor")
+        pl.concat(
+            chaves.with_columns(pl.lit(nome).alias("Atributo"), atributos[nome].alias("Valor"))
+            for nome in atributos.columns
+        )
         .drop_nulls("Valor")
         .group_by("Atributo", "Valor")
         .agg(pl.col("Peso").sum(), pl.col("Absoluta").sum())
