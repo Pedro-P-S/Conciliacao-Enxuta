@@ -383,19 +383,20 @@ def conciliar(
         .sort(pl.col("Diferenca").abs(), "Chave", descending=[True, False])
     )
 
+    sem_a, sem_b = _sem_chave(sem_chave_a, data_base), _sem_chave(sem_chave_b, data_base)
     return Resultado(
         data_base=data_base,
         tolerancia=tolerancia,
-        total_a=int(a.filter(pl.col("Data") == data_base)["A"].sum()) + _sem_chave(sem_chave_a, data_base).soma,
-        total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()) + _sem_chave(sem_chave_b, data_base).soma,
+        total_a=int(a.filter(pl.col("Data") == data_base)["A"].sum()) + sem_a.soma,
+        total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()) + sem_b.soma,
         diferenca_total=int(na_mais_recente["Diferenca"].sum() + soltas_na_mais_recente.sum()),
         diferenca_absoluta=int(na_mais_recente["Diferenca"].abs().sum() + soltas_na_mais_recente.abs().sum()),
         chaves_com_diferenca=na_mais_recente.height,
         data_bases_so_em_a=tuple(sorted(datas_a - datas_b)),
         data_bases_so_em_b=tuple(sorted(datas_b - datas_a)),
         historico=tuple((data, int(absoluta_por_data.get(data, 0))) for data in comuns),
-        sem_chave_a=_sem_chave(sem_chave_a, data_base),
-        sem_chave_b=_sem_chave(sem_chave_b, data_base),
+        sem_chave_a=sem_a,
+        sem_chave_b=sem_b,
         rejeitadas=_rejeitadas(rejeitadas_a, rejeitadas_b),
         operacoes=operacoes,
         atributos=_atributos(operacoes.select("Chave"), a_na_mais_recente, b_na_mais_recente),

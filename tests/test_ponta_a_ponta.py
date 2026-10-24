@@ -183,7 +183,7 @@ def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(t
         ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
         ("Base A", None, None, "29/09/2026", None, "Data-base só na Base A"),
         DATA_BASE_SO_NA_B,
-        ("Base A", 5, "2", "ontem", "1.00", "Data ilegível"),
+        ("Base A", 5, "2", "ontem", "1,00", "Data ilegível"),
     ]
     assert avisos_de_data_bases_ignoradas(caminho) == []
     assert "Linhas rejeitadas: 1 (veja a aba Erros)" in avisos_do_resumo(caminho)
@@ -777,8 +777,8 @@ def test_acima_do_limite_a_aba_erros_mostra_os_primeiros_com_o_aviso_na_linha_1(
     assert list(ws.iter_rows(values_only=True)) == [
         ("Nem todos os erros couberam: mostrando 2 de 3.", None, None, None, None, None),
         tuple(CABECALHO_DE_ERROS),
-        ("Base A", 3, "2", None, "1", "Data vazia"),
-        ("Base A", 4, "3", "ontem", "1", "Data ilegível"),
+        ("Base A", 3, "2", None, "1,00", "Data vazia"),
+        ("Base A", 4, "3", "ontem", "1,00", "Data ilegível"),
     ]
     assert ws.freeze_panes == "A3"
     assert ws.auto_filter.ref == "A2:F4"
@@ -852,7 +852,7 @@ def test_o_corte_da_aba_erros_conta_as_data_bases_ignoradas_junto_com_as_linhas_
         ("Nem todos os erros couberam: mostrando 2 de 3.", None, None, None, None, None),
         tuple(CABECALHO_DE_ERROS),
         ("Base A", None, None, "28/09/2026", None, "Data-base só na Base A"),
-        ("Base A", 4, "2", None, "1", "Data vazia"),
+        ("Base A", 4, "2", None, "1,00", "Data vazia"),
     ]
 
 

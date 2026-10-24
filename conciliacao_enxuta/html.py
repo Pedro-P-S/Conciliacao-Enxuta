@@ -6,7 +6,19 @@ from html import escape
 from pathlib import Path
 
 from conciliacao_enxuta.cruzamento import Resultado
-from conciliacao_enxuta.excel import LIMITE_DE_LINHAS, TITULO_PROBLEMATICOS, _aviso_de_corte, _milhar, _rotulo_da_faixa
+from conciliacao_enxuta.excel import (
+    LIMITE_DE_LINHAS,
+    ROTULOS_DO_QUADRO,
+    TITULO_GRAFICO_DA_IDADE,
+    TITULO_GRAFICO_DO_HISTORICO,
+    TITULO_PROBLEMATICOS,
+    TITULOS_POR_ATRIBUTO,
+    TITULOS_SEM_CHAVE,
+    avisos,
+    milhar,
+    reais,
+    rotulo_da_faixa,
+)
 
 ESTILO = """
 body { font-family: Calibri, Arial, sans-serif; margin: 24px; color: #222; background: #fff; }
@@ -19,12 +31,6 @@ svg text { fill: #222; }
 COR = "#2f6db5"
 
 
-def _reais(centavos: int) -> str:
-    """Centavos → `1.234,56`, ou `-1.234,56`, como o Excel mostra `#.##0,00`."""
-    reais, resto = divmod(abs(centavos), 100)
-    return f"{'-' if centavos < 0 else ''}{_milhar(reais)},{resto:02d}"
-
-
 def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
     """Grava `conciliacao_AAAA-MM-DD.html` em `pasta`, sobrescrevendo, e devolve o caminho.
 
@@ -32,42 +38,39 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
     """
     caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.html"
     quadro = [
-        ("Data-base mais recente", f"{resultado.data_base:%d/%m/%Y}"),
-        ("Tolerância", _reais(resultado.tolerancia)),
-        ("Total A", _reais(resultado.total_a)),
-        ("Total B", _reais(resultado.total_b)),
-        ("Diferença total", _reais(resultado.diferenca_total)),
-        ("Diferença absoluta", _reais(resultado.diferenca_absoluta)),
-        ("Chaves com Diferença", _milhar(resultado.chaves_com_diferenca)),
+        f"{resultado.data_base:%d/%m/%Y}",
+        reais(resultado.tolerancia),
+        reais(resultado.total_a),
+        reais(resultado.total_b),
+        reais(resultado.diferenca_total),
+        reais(resultado.diferenca_absoluta),
+        milhar(resultado.chaves_com_diferenca),
     ]
     partes = ["<table>"]
-    partes += [f'<tr><th>{escape(r)}</th><td class="n">{escape(v)}</td></tr>' for r, v in quadro]
+    partes += [
+        f'<tr><th>{escape(r)}</th><td class="n">{escape(v)}</td></tr>' for r, v in zip(ROTULOS_DO_QUADRO, quadro)
+    ]
     partes.append("</table>")
 
     # Avisos, só quando acontecem
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
-        partes.append("<table><tr><th>Linhas sem Chave, fora do cruzamento</th><th>Linhas</th><th>Soma</th></tr>")
+        partes.append(_cabecalho(TITULOS_SEM_CHAVE))
         for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
             partes.append(
-                f'<tr><td>{base}</td><td class="n">{_milhar(sem_chave.linhas)}</td>'
-                f'<td class="n">{_reais(sem_chave.soma)}</td></tr>'
+                f'<tr><td>{base}</td><td class="n">{milhar(sem_chave.linhas)}</td>'
+                f'<td class="n">{reais(sem_chave.soma)}</td></tr>'
             )
         partes.append("</table>")
-    if resultado.rejeitadas.height:
-        partes.append(f"<p>Linhas rejeitadas: {_milhar(resultado.rejeitadas.height)} (veja a aba Erros)</p>")
-    if resultado.operacoes.height > limite:
-        partes.append(f"<p>{escape(_aviso_de_corte(limite, resultado.operacoes.height))}</p>")
+    partes += [f"<p>{escape(aviso)}</p>" for aviso in avisos(resultado, limite)]
 
     # Os Atributos Problemáticos; sem Atributo acima do peso, a tabela não aparece
     if resultado.atributos_problematicos.height:
-        partes.append(f"<h2>{TITULO_PROBLEMATICOS}</h2>")
-        partes.append(
-            "<table><tr><th>Atributo</th><th>Valor</th><th>Diferença absoluta</th><th>Diferença acima do peso</th></tr>"
-        )
+        partes.append(f"<h2>{escape(TITULO_PROBLEMATICOS)}</h2>")
+        partes.append(_cabecalho(TITULOS_POR_ATRIBUTO))
         for atributo, valor, absoluta, acima_do_peso in resultado.atributos_problematicos.iter_rows():
             percentual = f"{acima_do_peso * 100:.2f}%".replace(".", ",")
             partes.append(
-                f'<tr><td>{escape(atributo)}</td><td>{escape(valor)}</td><td class="n">{_reais(absoluta)}</td>'
+                f'<tr><td>{escape(atributo)}</td><td>{escape(valor)}</td><td class="n">{reais(absoluta)}</td>'
                 f'<td class="n">{percentual}</td></tr>'
             )
         partes.append("</table>")
@@ -86,19 +89,24 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
     return caminho
 
 
+def _cabecalho(titulos: tuple[str, ...]) -> str:
+    """O começo de uma tabela, com a linha de títulos."""
+    return "<table><tr>" + "".join(f"<th>{escape(t)}</th>" for t in titulos) + "</tr>"
+
+
 def _grafico_de_barras(resultado: Resultado) -> str:
     """A Diferença absoluta por faixa de Idade, em barras deitadas, com os rótulos das faixas como no Excel."""
     rotulos = 330  # largura da coluna dos rótulos
     largura_maxima = 340
     maior = max((absoluta for *_, absoluta in resultado.por_idade), default=0) or 1
     linhas = ['<svg width="820" height="{}" role="img">']
-    linhas.append('<text x="0" y="16" font-weight="bold">Diferença absoluta por Idade da Diferença</text>')
+    linhas.append(f'<text x="0" y="16" font-weight="bold">{escape(TITULO_GRAFICO_DA_IDADE)}</text>')
     for i, (faixa, chaves, sem_chave, absoluta) in enumerate(resultado.por_idade):
         y = 32 + i * 30
         largura = round(absoluta / maior * largura_maxima)
-        linhas.append(f'<text x="0" y="{y + 15}">{escape(_rotulo_da_faixa(faixa, chaves, sem_chave))}</text>')
+        linhas.append(f'<text x="0" y="{y + 15}">{escape(rotulo_da_faixa(faixa, chaves, sem_chave))}</text>')
         linhas.append(f'<rect x="{rotulos}" y="{y}" width="{largura}" height="20" fill="{COR}"/>')
-        linhas.append(f'<text x="{rotulos + largura + 6}" y="{y + 15}">{_reais(absoluta)}</text>')
+        linhas.append(f'<text x="{rotulos + largura + 6}" y="{y + 15}">{reais(absoluta)}</text>')
     altura = 32 + len(resultado.por_idade) * 30
     linhas[0] = linhas[0].format(altura)
     linhas.append("</svg>")
@@ -118,10 +126,10 @@ def _grafico_de_linha(resultado: Resultado) -> str:
     base = topo + altura
     linhas = [
         f'<svg width="820" height="{base + 30}" role="img">',
-        '<text x="0" y="16" font-weight="bold">Diferença absoluta por Data-base</text>',
+        f'<text x="0" y="16" font-weight="bold">{escape(TITULO_GRAFICO_DO_HISTORICO)}</text>',
         f'<line x1="{esquerda}" y1="{topo}" x2="{esquerda}" y2="{base}" stroke="#999"/>',
         f'<line x1="{esquerda}" y1="{base}" x2="{esquerda + largura}" y2="{base}" stroke="#999"/>',
-        f'<text x="{esquerda - 6}" y="{topo + 5}" text-anchor="end">{_reais(maior)}</text>',
+        f'<text x="{esquerda - 6}" y="{topo + 5}" text-anchor="end">{reais(maior)}</text>',
         f'<text x="{esquerda - 6}" y="{base + 5}" text-anchor="end">0,00</text>',
         f'<polyline points="{pontos}" fill="none" stroke="{COR}" stroke-width="2"/>',
     ]

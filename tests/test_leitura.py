@@ -104,7 +104,20 @@ def test_data_ilegivel_nao_some_em_silencio(tmp_path, texto):
     base, rejeitadas = ler_base(caminho)
 
     assert base.height == 0
-    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", texto, "10", "Data ilegível")]
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", texto, "10,00", "Data ilegível")]
+
+
+@pytest.mark.parametrize(
+    ("texto", "em_reais"),
+    [("1234567,891", "1.234.567,89"), ("(1.234,56)", "-1.234,56"), ("-0,5", "-0,50"), ("123456", "123.456,00")],
+)
+def test_valor_lido_de_linha_rejeitada_pela_data_sai_em_reais(tmp_path, texto, em_reais):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;Valor\n1;ontem;{texto}\n", encoding="utf-8")
+
+    _, rejeitadas = ler_base(caminho)
+
+    assert rejeitadas_em_tuplas(rejeitadas) == [(2, "1", "ontem", em_reais, "Data ilegível")]
 
 
 def test_xlsx_com_valor_numerico_data_do_excel_e_chave_numerica(tmp_path):
@@ -174,7 +187,7 @@ def test_erros_e_linhas_rejeitadas_valem_tambem_para_xlsx_e_parquet(tmp_path):
 
     parquet = tmp_path / "base_b.parquet"
     pl.DataFrame({"Chave": ["1", "2"], "Data": [date(2026, 9, 30), None], "Valor": [1.0, 2.0]}).write_parquet(parquet)
-    assert rejeitadas_em_tuplas(ler_base(parquet)[1]) == [(2, "2", None, "2.0", "Data vazia")]
+    assert rejeitadas_em_tuplas(ler_base(parquet)[1]) == [(2, "2", None, "2,00", "Data vazia")]
 
 
 def test_colunas_extras_viram_atributos_em_texto_com_o_nome_original(tmp_path):
@@ -437,4 +450,24 @@ def test_data_numerica_grande_demais_no_xlsx_vira_linha_rejeitada(tmp_path):
     assert base["Data"].to_list() == [date(2026, 9, 30)]
     assert [(linha, chave, motivo) for linha, chave, _, _, motivo in rejeitadas_em_tuplas(rejeitadas)] == [
         (3, "2", "Data ilegível"),
+    ]
+
+
+def test_chave_numerica_longa_no_xlsx_sai_igual_mesmo_com_data_grande_demais_em_outra_linha(tmp_path):
+    caminho = tmp_path / "base.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Chave", "Data", "Valor"])
+    wb.active.append([12345678901234567, 46295, 10])
+    wb.active.append([100000000000000000, 46295, 10])
+    wb.active.append([999, 1e30, 5])
+    wb.active.append([888, 46295, 1e30])
+    wb.save(caminho)
+
+    base, rejeitadas = ler_base(caminho)
+
+    assert base["Chave"].to_list() == ["12345678901234570", "100000000000000000"]
+    # O Valor lido sai em reais; o que não pôde ser lido e a Data saem como vieram, número redondo sem `.0`
+    assert rejeitadas_em_tuplas(rejeitadas) == [
+        (4, "999", "1e+30", "5,00", "Data ilegível"),
+        (5, "888", "46295", "1e+30", "Valor ilegível"),
     ]

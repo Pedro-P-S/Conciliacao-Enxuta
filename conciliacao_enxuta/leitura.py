@@ -109,11 +109,22 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
     raise FormatoNaoSuportado(f"{caminho.name}: formato não suportado. Use .csv, .xlsx ou .parquet.")
 
 
+def _como_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
+    """Coluna em texto; número redondo como inteiro (`123.0` → `123`, `1e17` → `100000000000000000`).
+
+    Assim o texto não muda quando a releitura do `.xlsx` passa uma coluna de inteiros a decimal.
+    NaN, infinito e o que não cabe em Int64 ficam no texto do polars.
+    """
+    c = pl.col(coluna)
+    if not tipo.is_float():
+        return c.cast(pl.String)
+    redondo = pl.when(c == c.round(0)).then(c.cast(pl.Int64, strict=False).cast(pl.String))
+    return pl.coalesce(redondo, c.cast(pl.String))
+
+
 def _em_texto(coluna: str, tipo: pl.DataType) -> pl.Expr:
-    """Coluna em texto, sem espaço nas pontas; número sem `.0` no fim (`123.0` → `123`)."""
-    texto = pl.col(coluna).cast(pl.String)
-    texto = texto.str.replace(r"\.0$", "") if tipo.is_float() else texto
-    return texto.str.strip_chars()
+    """Coluna em texto, sem espaço nas pontas; número redondo como inteiro."""
+    return _como_texto(coluna, tipo).str.strip_chars()
 
 
 def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
@@ -153,11 +164,21 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return _centavos(pl.col("Valor"))
 
 
+def _em_reais(centavos: pl.Expr) -> pl.Expr:
+    """Centavos → `1.234.567,89`, ou `-1.234.567,89`, como o Excel mostra o Valor."""
+    # O milhar se põe de trás para a frente: `1234567` → `7654321` → `765.432.1` → `1.234.567`
+    inteiro = (centavos.abs() // 100).cast(pl.String).str.reverse()
+    milhar = inteiro.str.replace_all(r"(\d{3})", "${1}.").str.reverse().str.strip_chars_start(".")
+    resto = (centavos.abs() % 100).cast(pl.String).str.zfill(2)
+    return pl.concat_str(pl.when(centavos < 0).then(pl.lit("-")).otherwise(pl.lit("")), milhar, pl.lit(","), resto)
+
+
 def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
 
     Devolve a base e as Linhas rejeitadas: a Data ou o Valor vazio ou ilegível rejeita a linha, que fica fora
-    da base. As rejeitadas trazem a Linha, a Chave, a Data e o Valor como vieram, em texto, e o Motivo.
+    da base. As rejeitadas trazem a Linha, a Chave, a Data e o Valor em texto, e o Motivo: a Chave e a Data
+    como vieram, o Valor em reais (`1.234,56`) quando foi lido, e como veio quando não.
 
     Toda outra coluna é Atributo, em texto e com o nome que veio no arquivo (vazio vira nulo).
 
@@ -181,14 +202,15 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     )
     # A linha é a que o usuário vê: no `.csv` e no `.xlsx` o cabeçalho é a linha 1; no `.parquet`, não há cabeçalho.
     primeira_linha = 1 if caminho.suffix.lower() == ".parquet" else 2
-    como_veio = {c: pl.col(c).cast(pl.String) for c in ("Data", "Valor")}
+    como_veio = {c: _como_texto(c, df.schema[c]) for c in ("Data", "Valor")}
     vazio = {c: texto.str.strip_chars().fill_null("") == "" for c, texto in como_veio.items()}
     chave = _em_texto("Chave", df.schema["Chave"])
     lidas = df.select(
         (pl.int_range(pl.len()) + primeira_linha).alias("Linha"),
         pl.when(chave != "").then(chave).alias("Chave"),
         como_veio["Data"].alias("Data"),
-        como_veio["Valor"].alias("Valor"),
+        # O Valor lido (a linha caiu pela Data) sai em reais; o que não pôde ser lido sai como veio
+        pl.when(base["Valor"].is_not_null()).then(_em_reais(base["Valor"])).otherwise(como_veio["Valor"]).alias("Valor"),
         pl.when(vazio["Data"]).then(pl.lit("Data vazia"))
         .when(base["Data"].is_null()).then(pl.lit("Data ilegível"))
         .when(vazio["Valor"]).then(pl.lit("Valor vazio"))

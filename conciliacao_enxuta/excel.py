@@ -20,22 +20,52 @@ FORMATO_DATA = "DD/MM/YYYY"
 FORMATO_DATA_OU_ANTES = 'DD/MM/YYYY" ou antes"'
 FORMATO_INTEIRO = "#,##0"
 FORMATO_PERCENTUAL = "0.00%"
+# Os rótulos do Resumo, os mesmos no `.xlsx` e no `.html`
+ROTULOS_DO_QUADRO = (
+    "Data-base mais recente",
+    "Tolerância",
+    "Total A",
+    "Total B",
+    "Diferença total",
+    "Diferença absoluta",
+    "Chaves com Diferença",
+)
+TITULOS_SEM_CHAVE = ("Linhas sem Chave, fora do cruzamento", "Linhas", "Soma")
 TITULO_PROBLEMATICOS = "Atributos Problemáticos"
+TITULOS_POR_ATRIBUTO = ("Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso")
+TITULO_GRAFICO_DA_IDADE = "Diferença absoluta por Idade da Diferença"
+TITULO_GRAFICO_DO_HISTORICO = "Diferença absoluta por Data-base"
 NOTA_POR_TIPO = "Uma Chave pode contar em mais de um Tipo do Erro."
 LIMITE_DE_LINHAS = 700_000
 
 
-def _aviso_de_corte(limite: int, total: int) -> str:
+def aviso_de_corte(limite: int, total: int) -> str:
     """O aviso de que a aba Operações com Diferença mostra só as `limite` maiores de `total`."""
     return (
-        f"Nem todas as operações com diferença couberam: mostrando {_milhar(limite)} de {_milhar(total)}, "
+        f"Nem todas as operações com diferença couberam: mostrando {milhar(limite)} de {milhar(total)}, "
         "as maiores."
     )
 
 
-def _milhar(numero: int) -> str:
+def avisos(resultado: Resultado, limite: int) -> list[str]:
+    """Os avisos do Resumo que acontecem: Linhas rejeitadas e corte das operações acima de `limite`."""
+    lista = []
+    if resultado.rejeitadas.height:
+        lista.append(f"Linhas rejeitadas: {milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
+    if resultado.operacoes.height > limite:
+        lista.append(aviso_de_corte(limite, resultado.operacoes.height))
+    return lista
+
+
+def milhar(numero: int) -> str:
     """700000 → '700.000'."""
     return f"{numero:,}".replace(",", ".")
+
+
+def reais(centavos: int, sinal: str = "-") -> str:
+    """Centavos → `1.234,56`, ou `-1.234,56` (com `sinal` no negativo), como o Excel mostra `#.##0,00`."""
+    inteiro, resto = divmod(abs(centavos), 100)
+    return f"{sinal if centavos < 0 else ''}{milhar(inteiro)},{resto:02d}"
 
 
 def _do_arquivo(ws, linha: int, coluna: int, valor):
@@ -54,11 +84,9 @@ def _linha_sem_chave(casa: list[dict] | None) -> str | None:
     """As linhas sem Chave que casam com a Chave, como `−10.000,00 em 15/03/2026 na Base B`, separadas por `; `."""
     if not casa:
         return None
-    textos = []
-    for linha in casa:
-        reais, centavos = divmod(abs(linha["Valor"]), 100)
-        sinal = "−" if linha["Valor"] < 0 else ""
-        textos.append(f"{sinal}{_milhar(reais)},{centavos:02d} em {linha['Data']:%d/%m/%Y} na Base {linha['Base']}")
+    textos = [
+        f"{reais(linha['Valor'], sinal='−')} em {linha['Data']:%d/%m/%Y} na Base {linha['Base']}" for linha in casa
+    ]
     return "; ".join(textos)
 
 
@@ -73,22 +101,22 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     ws.title = "Resumo"
 
     quadro = [
-        ("Data-base mais recente", resultado.data_base, FORMATO_DATA),
-        ("Tolerância", resultado.tolerancia / 100, FORMATO_REAIS),
-        ("Total A", resultado.total_a / 100, FORMATO_REAIS),
-        ("Total B", resultado.total_b / 100, FORMATO_REAIS),
-        ("Diferença total", resultado.diferenca_total / 100, FORMATO_REAIS),
-        ("Diferença absoluta", resultado.diferenca_absoluta / 100, FORMATO_REAIS),
-        ("Chaves com Diferença", resultado.chaves_com_diferenca, FORMATO_INTEIRO),
+        (resultado.data_base, FORMATO_DATA),
+        (resultado.tolerancia / 100, FORMATO_REAIS),
+        (resultado.total_a / 100, FORMATO_REAIS),
+        (resultado.total_b / 100, FORMATO_REAIS),
+        (resultado.diferenca_total / 100, FORMATO_REAIS),
+        (resultado.diferenca_absoluta / 100, FORMATO_REAIS),
+        (resultado.chaves_com_diferenca, FORMATO_INTEIRO),
     ]
-    for linha, (rotulo, valor, formato) in enumerate(quadro, start=1):
+    for linha, (rotulo, (valor, formato)) in enumerate(zip(ROTULOS_DO_QUADRO, quadro), start=1):
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
         ws.cell(linha, 2, valor).number_format = formato
 
     # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
     linha = len(quadro) + 2
     if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
-        for coluna, titulo in enumerate(["Linhas sem Chave, fora do cruzamento", "Linhas", "Soma"], start=1):
+        for coluna, titulo in enumerate(TITULOS_SEM_CHAVE, start=1):
             ws.cell(linha, coluna, titulo).font = Font(bold=True)
         for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
             linha += 1
@@ -97,14 +125,7 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
             ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
         linha += 2
 
-    avisos = []
-    if resultado.rejeitadas.height:
-        avisos.append(f"Linhas rejeitadas: {_milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
-    aviso_de_corte = None
-    if resultado.operacoes.height > limite:
-        aviso_de_corte = _aviso_de_corte(limite, resultado.operacoes.height)
-        avisos.append(aviso_de_corte)
-    for linha, aviso in enumerate(avisos, start=linha):
+    for linha, aviso in enumerate(avisos(resultado, limite), start=linha):
         ws.cell(linha, 1, aviso)
 
     # Os Atributos Problemáticos, uma linha abaixo dos avisos; sem Atributo acima do peso, a tabela não aparece
@@ -120,7 +141,8 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
 
     _aba_por_tipo(wb, resultado)
     _aba_por_atributo(wb, resultado)
-    _aba_operacoes(wb, resultado, limite, aviso_de_corte)
+    corte = aviso_de_corte(limite, resultado.operacoes.height) if resultado.operacoes.height > limite else None
+    _aba_operacoes(wb, resultado, limite, corte)
     _aba_erros(wb, resultado, limite)
     _graficos(wb, ws, resultado)
 
@@ -128,11 +150,11 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     return caminho
 
 
-def _rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
+def rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
     """`31 a 90 dias (12 Chaves)`, ou `91 a 365 dias (12 Chaves, 1 linha sem Chave)` quando há linhas sem Chave."""
-    rotulo = f"{faixa} ({_milhar(chaves)} {'Chave' if chaves == 1 else 'Chaves'}"
+    rotulo = f"{faixa} ({milhar(chaves)} {'Chave' if chaves == 1 else 'Chaves'}"
     if linhas:
-        rotulo += f", {_milhar(linhas)} {'linha' if linhas == 1 else 'linhas'} sem Chave"
+        rotulo += f", {milhar(linhas)} {'linha' if linhas == 1 else 'linhas'} sem Chave"
     return rotulo + ")"
 
 
@@ -152,17 +174,17 @@ def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
     dados.cell(1, 4, "Idade da Diferença")
     dados.cell(1, 5, "Diferença absoluta")
     for linha, (faixa, chaves, linhas, absoluta) in enumerate(resultado.por_idade, start=2):
-        dados.cell(linha, 4, _rotulo_da_faixa(faixa, chaves, linhas))
+        dados.cell(linha, 4, rotulo_da_faixa(faixa, chaves, linhas))
         dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
     fim_das_barras = len(resultado.por_idade) + 1
 
     barras = BarChart()
-    barras.title = "Diferença absoluta por Idade da Diferença"
+    barras.title = TITULO_GRAFICO_DA_IDADE
     barras.add_data(Reference(dados, min_col=5, min_row=1, max_row=fim_das_barras), titles_from_data=True)
     barras.set_categories(Reference(dados, min_col=4, min_row=2, max_row=fim_das_barras))
 
     linha_no_tempo = LineChart()
-    linha_no_tempo.title = "Diferença absoluta por Data-base"
+    linha_no_tempo.title = TITULO_GRAFICO_DO_HISTORICO
     linha_no_tempo.add_data(Reference(dados, min_col=2, min_row=1, max_row=fim_da_linha), titles_from_data=True)
     linha_no_tempo.set_categories(Reference(dados, min_col=1, min_row=2, max_row=fim_da_linha))
     # Sem isto o Excel pinta cada trecho de uma cor e suaviza a linha
@@ -212,7 +234,7 @@ def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
 
 def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela) -> None:
     """Cabeçalho e linhas de uma tabela no formato de `Resultado.por_atributo`, a partir de `linha_do_cabecalho`."""
-    for coluna, titulo in enumerate(["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"], start=1):
+    for coluna, titulo in enumerate(TITULOS_POR_ATRIBUTO, start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
     for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
         _do_arquivo(ws, linha, 1, atributo)
@@ -286,7 +308,7 @@ def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None
     erros = pl.concat([data_bases, resultado.rejeitadas], how="diagonal").select(resultado.rejeitadas.columns)
     linha_do_cabecalho = 1
     if erros.height > limite:
-        aviso = f"Nem todos os erros couberam: mostrando {_milhar(limite)} de {_milhar(erros.height)}."
+        aviso = f"Nem todos os erros couberam: mostrando {milhar(limite)} de {milhar(erros.height)}."
         ws.cell(1, 1, aviso).font = Font(bold=True)
         linha_do_cabecalho = 2
         erros = erros.head(limite)
