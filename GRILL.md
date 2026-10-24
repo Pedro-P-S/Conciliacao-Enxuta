@@ -23,7 +23,7 @@ Registro das decisões. O glossário fica em `CONTEXT.md`. Quando uma decisão m
 11. **Atributos Problemáticos no Resumo:** as 5 primeiras linhas da aba Por Atributo, misturando Atributos, com as mesmas colunas.
 12. **Idade da Diferença por faixa vira gráfico de barras** no Resumo: até 30 dias, 31 a 90, 91 a 365, 366 dias a 5 anos, mais de 5 anos. A barra é a Diferença absoluta da faixa, com as linhas sem Chave; a quantidade de Chaves e de linhas sem Chave vai no rótulo. Idade = dias corridos entre Aberta desde e a Data-base mais recente.
 13. **Diferença já presente na primeira Data-base:** o Aberta desde mostra "DD/MM/AAAA ou antes". Fica na faixa que a conta der.
-14. **Aba Erros:** uma linha por Linha rejeitada, de todas as Data-bases (Base, Linha, Chave, Data, Valor como veio no arquivo, Motivo), e uma linha por Data-base ignorada com a Data e o motivo (ex.: 01/10/2026, "Data-base só na Base B"). Mesmo limite e mesmo aviso de corte das Operações.
+14. **Aba Erros:** uma linha por Linha rejeitada, de todas as Data-bases (Base, Linha, Chave e Data como vieram no arquivo, o Valor em reais quando foi lido e como veio quando não, Motivo), e uma linha por Data-base ignorada com a Data e o motivo (ex.: 01/10/2026, "Data-base só na Base B"). Mesmo limite e mesmo aviso de corte das Operações.
 15. **O Resumo avisa as Linhas rejeitadas** numa linha, "Linhas rejeitadas: N (veja a aba Erros)", só quando houver. As Data-bases ignoradas saem do Resumo e vão para a aba Erros.
 
 ## Bordas
@@ -39,3 +39,15 @@ Registro das decisões. O glossário fica em `CONTEXT.md`. Quando uma decisão m
 24. **Data vazia ou ilegível:** a linha é rejeitada (sem Data-base, não há onde somar) e vai para a aba Erros. A execução segue.
 25. **Valor:** aceita número com qualquer número de casas; mais de 2 casas é arredondado para centavos. Texto ou caractere estranho (ex.: `abc`, `#`) rejeita a linha. Valor vazio também fica fora de tudo e aparece na aba Erros. Continuam aceitos o formato brasileiro, `R$`, parênteses e sinal.
 26. **Linha toda vazia** (sem Chave, Data e Valor) é ignorada em silêncio, como as linhas em branco no fim de uma planilha.
+
+## Correções da auditoria (24/10/2026)
+
+27. **Separadores do Valor:** com vírgula, o ponto só separa grupos de 3 dígitos e o primeiro grupo não começa com zero (`1.234,56`); fora disso, Valor ilegível (`1,234.56`, `1.2.3,4`, `1.2,3`). Sem vírgula, o ponto é milhar só nesse mesmo formato; senão é decimal (`0.125` é R$ 0,13, `00.500` é R$ 0,50). Um Valor que não cabe em centavos `Int64`, de qualquer formato, é ilegível. O arredondamento para centavos é feito uma vez só.
+28. **Data:** o ano tem 4 dígitos (`31/01/26` é Data ilegível). Uma data do Excel acima de 2958465 (31/12/9999) é Data ilegível. Valor ou Data de um tipo que não é número, texto nem data (ex.: `bool`, `time` num `.parquet`) é ilegível; o `decimal` é número. Nenhum desses para a execução.
+29. **Erros do arquivo inteiro** (arquivo que não existe ou não abre, vazio, corrompido, com campo a mais, numa codificação que não é UTF-8 nem cp1252, ou com `Chave`, `Data` ou `Valor` repetida, como `Data` e `DATA`) param a execução com uma mensagem simples que diz o arquivo, na CLI e na GUI, sem traceback. A pasta de saída que não existe também. Um erro inesperado na CLI sai sem traceback na tela.
+30. **Gravação:** o `.xlsx` é gravado antes do `.html`. Se o `.xlsx` não pode ser gravado (aberto no Excel), nenhum dos dois muda.
+31. **GUI:** o caminho colado com espaço nas pontas ou entre aspas (o "Copiar como caminho" do Windows) é aceito. Se o `erros.log` não pode ser gravado, a mensagem simples aparece mesmo assim, e o resultado anterior sai da tela.
+32. **Tolerância:** lida no formato brasileiro, como o Valor (`1.000` é R$ 1.000,00). Uma Tolerância que não vira número, ou grande demais, dá uma mensagem simples. O arredondamento dela fica como está (pergunta aberta).
+33. **Linha da Linha rejeitada no `.xlsx`:** a do arquivo, contando as linhas vazias antes do cabeçalho.
+34. **HTML igual ao Excel:** o percentual arredonda como no Excel; o eixo do gráfico mostra 0 quando não há Diferença; com uma Data-base só, o gráfico de linha mostra o ponto e a data uma vez; o caractere de controle sai do texto, como no Excel.
+

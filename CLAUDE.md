@@ -26,7 +26,7 @@ Guias, não leis. Na dúvida, eles decidem.
 ## Regras fixas
 
 - Trabalhe só dentro desta pasta. A exceção é ler o projeto grande, como dito acima, e o `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`.
-- Dinheiro é sempre centavos `Int64`; vira reais só no Excel.
+- Dinheiro é sempre centavos `Int64`; vira reais só no Excel e no HTML (e no texto do Valor lido de uma Linha rejeitada, como a spec manda).
 - TDD; os testes com olhos de usuário usam `exemplo\` (no `.gitignore`).
 - Nunca abra a GUI sem `CONCILIACAO_AUTOTESTE=1`; ninguém vê a janela.
 - Ao imprimir acentos no console, use `PYTHONIOENCODING=utf-8`.
