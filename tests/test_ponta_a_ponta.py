@@ -1140,3 +1140,26 @@ def test_janela_sem_batimento_nas_duas_bases_da_mensagem_simples(tmp_path):
 
     assert resposta.caminho is None
     assert resposta.mensagem == "A Base A e a Base B não têm nenhuma coluna de valor em comum."
+
+
+@pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
+def test_exemplo_traz_um_segundo_batimento_que_bate_com_o_gabarito_e_difere_do_valor(tmp_path, formato):
+    gabarito = gerar_bases_exemplo(tmp_path, formato)
+
+    valor, juros = conciliar_batimentos(gabarito.base_a, gabarito.base_b, TOLERANCIA_PADRAO)[0]
+    esperado = gabarito.juros
+
+    assert (juros.total_a, juros.total_b) == (esperado.total_a, esperado.total_b)
+    assert (juros.diferenca_total, juros.diferenca_absoluta) == (esperado.diferenca_total, esperado.diferenca_absoluta)
+    assert juros.chaves_com_diferenca == len(esperado.operacoes)
+    assert [tuple(op) for op in juros.operacoes.select("Chave", "A", "B", "Diferenca", "Tipo").rows()] == list(
+        esperado.operacoes
+    )
+    assert [tuple(r) for r in juros.rejeitadas.rows()] == list(esperado.rejeitadas)
+    # O primeiro Batimento segue o do gabarito de sempre, e as Diferenças dos dois não coincidem
+    assert valor.total_a == gabarito.total_a
+    assert valor.chaves_com_diferenca == gabarito.chaves_com_diferenca
+    chaves_de_juros = {chave for chave, *_ in esperado.operacoes}
+    assert chaves_de_juros.isdisjoint(chave for chave, *_ in gabarito.operacoes)
+    assert {t for *_, t in esperado.operacoes} == {"Sem padrão", "Duplicado", "Sinal invertido"}  # outros Tipos por Chave
+    assert esperado.rejeitadas != gabarito.rejeitadas

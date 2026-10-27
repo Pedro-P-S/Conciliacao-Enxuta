@@ -5,6 +5,8 @@ Cada base traz uma posição por dia útil de seis meses, e a Base B traz ainda 
 A Base A traz o Atributo Produto, vazio em algumas Chaves; a Base B traz o Produto e a Filial. As duas trazem a
 Carteira, em que Legado tem Diferença acima do peso, e a Moeda, BRL em todas as Chaves.
 No fim de cada base vêm Linhas rejeitadas, uma de cada motivo, que ficam fora de tudo.
+As duas trazem ainda uma segunda coluna de valor, `Valor Juros`, um segundo Batimento com Diferenças próprias: outras
+Chaves e outros Tipos do Erro, e Linhas rejeitadas só pelo Valor Juros.
 No `.csv`, a Base A sai em UTF-8 com BOM e a Base B em cp1252, as duas formas do Excel em português.
 Uso: `python -m conciliacao_enxuta.exemplo [PASTA] [csv|xlsx|parquet]` (padrão: `exemplo` e `csv`).
 """
@@ -40,12 +42,16 @@ SEM_CHAVE_B = [("", 77_700)]
 DIFERENCAS_SEM_CHAVE = [v for _, v in SEM_CHAVE_A] + [-v for _, v in SEM_CHAVE_B]
 # Linhas rejeitadas, no fim da base: (Chave, Data, Valor, Motivo), gravadas assim mesmo no arquivo, em texto, e no
 # `.xlsx` também. O `.parquet` tem tipos nativos e não guarda Data nem Valor ilegível: lá, só a Base B as traz.
+# Cada uma traz também o Valor Juros e o Motivo dele (None: a linha não é rejeitada no Batimento Valor Juros); a Data
+# rejeita nos dois Batimentos, o Valor só no seu.
 REJEITADAS_A = [
-    ("C00002", None, "10,00", "Data vazia"),
-    ("C00003", "31/02/2026", "10,00", "Data ilegível"),
-    (None, "30/09/2026", "abc", "Valor ilegível"),  # sem Chave: rejeitada, e não vira linha sem Chave
+    ("C00002", None, "10,00", "20,00", "Data vazia", "Data vazia"),
+    ("C00003", "31/02/2026", "10,00", "20,00", "Data ilegível", "Data ilegível"),
+    # sem Chave: rejeitada, e não vira linha sem Chave
+    (None, "30/09/2026", "abc", None, "Valor ilegível", "Valor vazio"),
 ]
-REJEITADAS_B = [(" C00006 ", DATA_BASE, None, "Valor vazio")]  # a Data é data no `.xlsx` e no `.parquet`
+# A Data é data no `.xlsx` e no `.parquet`; o Valor Juros é zero, para a linha não mudar o Batimento Valor Juros
+REJEITADAS_B = [(" C00006 ", DATA_BASE, None, 0.0, "Valor vazio", None)]
 # Linha sem Chave na Base B só nesta Data-base antiga, com o valor da Diferença que esta Chave tinha nela: casa com
 # a Chave, cuja Diferença muda depois (é um caso de Diferença sorteada a cada dia).
 CASA_CHAVE, CASA_DATA = "C00041", date(2026, 5, 4)
@@ -60,9 +66,9 @@ PAUSAS = {
 
 PRODUTOS = ("Crédito", "Débito", "Câmbio", "Seguro")
 # Os nomes de coluna e os formatos variam de propósito, entre as bases e do nome exato
-CABECALHO_A = ["CHAVE", "data", "Valor ", "Produto", "Carteira", "Moeda"]
-CABECALHO_B = [" Chave", "DATA", "VALOR", "Produto", "Filial", "Carteira", "Moeda"]
-ATRIBUTOS_A, ATRIBUTOS_B = CABECALHO_A[3:], CABECALHO_B[3:]
+CABECALHO_A = ["CHAVE", "data", "Valor ", "Valor Juros", "Produto", "Carteira", "Moeda"]
+CABECALHO_B = [" Chave", "DATA", "VALOR", "valor_juros", "Produto", "Filial", "Carteira", "Moeda"]
+ATRIBUTOS_A, ATRIBUTOS_B = CABECALHO_A[4:], CABECALHO_B[4:]
 
 
 def _legado(i: int) -> bool:
@@ -71,6 +77,18 @@ def _legado(i: int) -> bool:
     Caem todas no caso da Vírgula deslocada (i % 10 == 9), que nelas é sempre B = 1000 × A.
     """
     return i % 20 == 19
+
+
+@dataclass(frozen=True)
+class GabaritoJuros:
+    """O que o Batimento Valor Juros deve mostrar com a Tolerância padrão. Dinheiro em centavos."""
+
+    total_a: int
+    total_b: int
+    diferenca_total: int
+    diferenca_absoluta: int
+    operacoes: tuple[tuple[str, int, int, int, str], ...]  # como as do `Gabarito`
+    rejeitadas: tuple[tuple[str, int, str | None, str | None, str | None, str], ...]  # como as do `Gabarito`
 
 
 @dataclass(frozen=True)
@@ -101,6 +119,7 @@ class Gabarito:
     # (Faixa de Idade, Chaves, Linhas sem Chave, Diferença absoluta), as 5 em ordem
     por_idade: tuple[tuple[str, int, int, int], ...]
     linha_sem_chave: dict[str, str]  # o texto da coluna Linha sem Chave das Chaves que casam
+    juros: GabaritoJuros  # o segundo Batimento, `Valor Juros`
 
 
 def _reais_com_rs(centavos: int) -> str:
@@ -133,6 +152,25 @@ def _linhas_da_base(
         else:
             linhas.append((chave, valor))
     return linhas + segundas + sem_chave
+
+
+def _juros(chave: str) -> tuple[int, int, str | None]:
+    """O Valor Juros da Chave em A e em B e o Tipo do Erro da Diferença, ou None sem Diferença.
+
+    Só as Chaves que terminam em 5 ou 6 têm Diferença, e o Valor não planta nelas: as Diferenças dos dois Batimentos
+    não coincidem. As Chaves só em A ou só em B (final 3 e 4) e as que não são Chave de verdade valem zero.
+    """
+    if not re.fullmatch(r"C\d{5}", chave) or chave[-1] in "34":
+        return 0, 0, None
+    i = int(chave[1:])
+    base = 1_000 + 37 * i
+    if i % 20 == 5:
+        return base, base - (300 + 3 * i), "Sem padrão"
+    if i % 20 == 15:
+        return 2 * base, base, "Duplicado"
+    if i % 10 == 6:
+        return base, -base, "Sinal invertido"
+    return base, base, None
 
 
 def _atributos_plantados(chave: str) -> tuple[dict[str, str | None], dict[str, str | None]]:
@@ -170,9 +208,11 @@ def _escrever_csv(
 def _escrever_nativo(caminho: Path, cabecalho: list[str], linhas: list[tuple], rejeitadas: list[tuple]) -> None:
     """`.xlsx` ou `.parquet` como o sistema exporta: Data como data, Valor como número em reais e Atributos em texto.
 
-    Cada linha é (Chave, Data, Valor em centavos, *Atributos); as `rejeitadas` vão no fim, como estão.
+    Cada linha é (Chave, Data, Valor e Valor Juros em centavos, *Atributos); as `rejeitadas` vão no fim, como estão.
     """
-    linhas = [(chave, data, valor / 100, *atributos) for chave, data, valor, *atributos in linhas] + rejeitadas
+    linhas = [
+        (chave, data, valor / 100, juros / 100, *atributos) for chave, data, valor, juros, *atributos in linhas
+    ] + rejeitadas
     if caminho.suffix == ".parquet":
         colunas = list(zip(*linhas))
         pl.DataFrame({nome: list(coluna) for nome, coluna in zip(cabecalho, colunas)}).write_parquet(caminho)
@@ -336,16 +376,25 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
     base_a, base_b = pasta / f"base_a.{formato}", pasta / f"base_b.{formato}"
     # As linhas sem Chave se repetem em toda Data-base, como numa posição diária: nos totais e no aviso, só contam
     # as da mais recente; no Histórico, entram em cada Data-base comum.
+    def linhas_da_base(posicoes, lado, repetidas, sem_chave_de) -> list[tuple[str, date, int, int]]:
+        """(Chave, Data, Valor, Valor Juros): o Valor Juros vem das mesmas linhas, com zero nas sem Chave."""
+        linhas = []
+        for data, valores in posicoes.items():
+            sem_chave = sem_chave_de(data)
+            juros = {chave: _juros(chave)[lado] for chave in valores}
+            valor_juros = _linhas_da_base(juros, repetidas, [(chave, 0) for chave, _ in sem_chave])
+            for (chave, valor), (_, j) in zip(_linhas_da_base(valores, repetidas, sem_chave), valor_juros):
+                linhas.append((chave, data, valor, j))
+        return linhas
+
     linhas_a = [
-        (chave, data, valor, *map(_atributos_plantados(chave)[0].get, ATRIBUTOS_A))
-        for data, valores in posicoes_a.items()
-        for chave, valor in _linhas_da_base(valores, REPETIDAS_A, SEM_CHAVE_A)
+        (chave, data, valor, juros, *map(_atributos_plantados(chave)[0].get, ATRIBUTOS_A))
+        for chave, data, valor, juros in linhas_da_base(posicoes_a, 0, REPETIDAS_A, lambda _: SEM_CHAVE_A)
     ]
     linhas_b = [
-        (f" {chave} ", data, valor, *map(_atributos_plantados(chave)[1].get, ATRIBUTOS_B))
-        for data, valores in posicoes_b.items()
-        for chave, valor in _linhas_da_base(
-            valores, REPETIDAS_B, SEM_CHAVE_B + ([("", casa_valor)] if data == CASA_DATA else [])
+        (f" {chave} ", data, valor, juros, *map(_atributos_plantados(chave)[1].get, ATRIBUTOS_B))
+        for chave, data, valor, juros in linhas_da_base(
+            posicoes_b, 1, REPETIDAS_B, lambda d: SEM_CHAVE_B + ([("", casa_valor)] if d == CASA_DATA else [])
         )
     ]
     rejeitadas_a = [] if formato == "parquet" else REJEITADAS_A
@@ -354,27 +403,49 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         _escrever_csv(
             base_a,
             CABECALHO_A,
-            [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), *at] for c, d, v, *at in linhas_a]
-            + [[c, d, v, *sem_atributos_a] for c, d, v, _ in rejeitadas_a],
+            [[c, d.strftime("%d/%m/%Y"), _reais_com_rs(v), _reais_com_rs(j), *at] for c, d, v, j, *at in linhas_a]
+            + [[c, d, v, j, *sem_atributos_a] for c, d, v, j, *_ in rejeitadas_a],
         )
         _escrever_csv(
             base_b,
             CABECALHO_B,
-            [[c, _data_do_excel(d), _reais_sem_milhar(v), *at] for c, d, v, *at in linhas_b]
-            + [[c, d.isoformat(), v, *sem_atributos_b] for c, d, v, _ in REJEITADAS_B],
+            [[c, _data_do_excel(d), _reais_sem_milhar(v), _reais_sem_milhar(j), *at] for c, d, v, j, *at in linhas_b]
+            + [[c, d.isoformat(), v, j, *sem_atributos_b] for c, d, v, j, *_ in REJEITADAS_B],
             codificacao="cp1252",  # com os acentos do Produto (Crédito, Débito, Câmbio)
         )
     else:
-        _escrever_nativo(base_a, CABECALHO_A, linhas_a, [(c, d, v, *sem_atributos_a) for c, d, v, _ in rejeitadas_a])
-        _escrever_nativo(base_b, CABECALHO_B, linhas_b, [(c, d, v, *sem_atributos_b) for c, d, v, _ in REJEITADAS_B])
+        for caminho, cabecalho, linhas, rejeitadas_do_arquivo, sem_atributos in (
+            (base_a, CABECALHO_A, linhas_a, rejeitadas_a, sem_atributos_a),
+            (base_b, CABECALHO_B, linhas_b, REJEITADAS_B, sem_atributos_b),
+        ):
+            rejeitadas_nativas = [(c, d, v, j, *sem_atributos) for c, d, v, j, *_ in rejeitadas_do_arquivo]
+            _escrever_nativo(caminho, cabecalho, linhas, rejeitadas_nativas)
     # A Linha é a que o usuário vê: o cabeçalho é a linha 1, menos no `.parquet`, que não tem cabeçalho
     primeira_a = len(linhas_a) + (1 if formato == "parquet" else 2)
     primeira_b = len(linhas_b) + (1 if formato == "parquet" else 2)
-    rejeitadas = [
-        (nome, primeira + i, chave and chave.strip(), data if data is None else str(data), valor, motivo)
-        for nome, primeira, plantadas in (("Base A", primeira_a, rejeitadas_a), ("Base B", primeira_b, REJEITADAS_B))
-        for i, (chave, data, valor, motivo) in enumerate(plantadas)
-    ]
+
+    def rejeitadas_do(batimento: int) -> tuple[tuple[str, int, str | None, str | None, str | None, str], ...]:
+        """As Linhas rejeitadas do Batimento 0 (Valor) ou 1 (Valor Juros), como a aba Erros mostra."""
+        return tuple(
+            (nome, primeira + i, chave and chave.strip(), data if data is None else str(data), valores[batimento],
+             motivos[batimento])
+            for nome, primeira, plantadas in (("Base A", primeira_a, rejeitadas_a), ("Base B", primeira_b, REJEITADAS_B))
+            for i, (chave, data, *resto) in enumerate(plantadas)
+            for valores, motivos in [(resto[:2], resto[2:])]
+            if motivos[batimento]
+        )
+
+    juros_a = {chave: _juros(chave)[0] for chave in a}
+    juros_b = {chave: _juros(chave)[1] for chave in b}
+    operacoes_juros = sorted(
+        (
+            (chave, juros_a.get(chave, 0), juros_b.get(chave, 0), juros_a.get(chave, 0) - juros_b.get(chave, 0),
+             _juros(chave)[2])
+            for chave in juros_a.keys() | juros_b.keys()
+            if abs(juros_a.get(chave, 0) - juros_b.get(chave, 0)) > TOLERANCIA
+        ),
+        key=lambda op: (-abs(op[3]), op[0]),
+    )
     return Gabarito(
         base_a=base_a,
         base_b=base_b,
@@ -386,7 +457,7 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         chaves_com_diferenca=len(diferencas),
         sem_chave_a=_sem_chave(SEM_CHAVE_A),
         sem_chave_b=_sem_chave(SEM_CHAVE_B),
-        rejeitadas=tuple(rejeitadas),
+        rejeitadas=rejeitadas_do(0),
         data_bases_so_em_b=(SO_NA_BASE_B,),
         historico=tuple(
             (
@@ -405,6 +476,14 @@ def gerar_bases_exemplo(pasta: str | Path, formato: str = "csv") -> Gabarito:
         por_tipo=_por_tipo(diferencas, tipos),
         por_idade=_por_idade(diferencas, aberta_desde),
         linha_sem_chave=linha_sem_chave,
+        juros=GabaritoJuros(
+            total_a=sum(juros_a.values()),
+            total_b=sum(juros_b.values()),
+            diferenca_total=sum(op[3] for op in operacoes_juros),
+            diferenca_absoluta=sum(abs(op[3]) for op in operacoes_juros),
+            operacoes=tuple(operacoes_juros),
+            rejeitadas=rejeitadas_do(1),
+        ),
         aberta_desde=aberta_desde,
         atributos={chave: _atributos_da_chave(chave, chave in a, chave in b) for chave in diferencas},
         por_atributo=_por_atributo(a, b, diferencas),
