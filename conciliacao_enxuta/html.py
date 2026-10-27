@@ -1,4 +1,6 @@
-"""Resultado → `.html` com o Resumo do Excel, num arquivo só, sem script e sem nada buscado na internet.
+"""Resultado → `.html` com o Resumo do Excel, num arquivo só e sem nada buscado na internet.
+
+O único script é o filtro de Batimento, que só existe com mais de um.
 
 Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
 """
@@ -35,14 +37,46 @@ svg { display: block; margin-bottom: 24px; font-size: 13px; }
 svg text { fill: #222; }
 """
 COR = "#2f6db5"
+# O único script: mostra só o Resumo do Batimento escolhido. Roda também na abertura, para a lista e o Resumo
+# não divergirem quando o navegador devolve a escolha anterior.
+FILTRO = """
+var lista = document.getElementById("batimento");
+function mostrar() {
+  document.querySelectorAll("section").forEach(function (s, i) { s.hidden = i !== lista.selectedIndex; });
+}
+lista.onchange = mostrar;
+mostrar();
+"""
 
 
-def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
+def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
     """Grava `conciliacao_AAAA-MM-DD.html` em `pasta`, sobrescrevendo, e devolve o caminho.
 
-    `limite` é o mesmo do `.xlsx`: acima dele, o Resumo avisa do corte das operações.
+    `resultados` são os Batimentos, na ordem da Base A. Com mais de um, o arquivo traz uma lista suspensa e o
+    Resumo de cada um; só o primeiro aparece sem o script. `limite` é o mesmo do `.xlsx`: acima dele, o Resumo
+    avisa do corte das operações.
     """
-    caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.html"
+    caminho = Path(pasta) / f"conciliacao_{resultados[0].data_base.isoformat()}.html"
+    corpo = _resumo(resultados[0], limite)
+    if len(resultados) > 1:
+        opcoes = "".join(f"<option>{_do_arquivo(r.batimento)}</option>" for r in resultados)
+        secoes = "\n".join(
+            f"<section{' hidden' if i else ''}>\n{_resumo(r, limite)}\n</section>" for i, r in enumerate(resultados)
+        )
+        corpo = f'<select id="batimento">{opcoes}</select>\n{secoes}\n<script>{FILTRO}</script>'
+    titulo = f"Conciliação {resultados[0].data_base:%d/%m/%Y}"
+    pagina = (
+        '<!doctype html>\n<html lang="pt-BR"><head><meta charset="utf-8">'
+        f"<title>{escape(titulo)}</title><style>{ESTILO}</style></head>\n<body>\n<h1>Resumo</h1>\n"
+        + corpo
+        + "\n</body></html>\n"
+    )
+    caminho.write_text(pagina, encoding="utf-8")
+    return caminho
+
+
+def _resumo(resultado: Resultado, limite: int) -> str:
+    """O Resumo de um Batimento: o quadro, os avisos, os Atributos Problemáticos e os dois gráficos."""
     partes = ["<table>"]
     partes += [
         f'<tr><th>{escape(rotulo)}</th><td class="n">{escape(texto)}</td></tr>'
@@ -75,16 +109,7 @@ def gravar_html(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE
 
     partes.append(_grafico_de_barras(resultado))
     partes.append(_grafico_de_linha(resultado))
-
-    titulo = f"Conciliação {resultado.data_base:%d/%m/%Y}"
-    pagina = (
-        '<!doctype html>\n<html lang="pt-BR"><head><meta charset="utf-8">'
-        f"<title>{escape(titulo)}</title><style>{ESTILO}</style></head>\n<body>\n<h1>Resumo</h1>\n"
-        + "\n".join(partes)
-        + "\n</body></html>\n"
-    )
-    caminho.write_text(pagina, encoding="utf-8")
-    return caminho
+    return "\n".join(partes)
 
 
 def _do_arquivo(texto: str) -> str:

@@ -116,7 +116,7 @@ def test_acima_do_limite_o_html_traz_o_aviso_de_corte_das_operacoes(tmp_path):
     (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(base_a), ler_base(base_b)
     resultado = conciliar(lida_a, lida_b, TOLERANCIA_PADRAO, rejeitadas_a, rejeitadas_b)
 
-    textos = ler_html(gravar_html(resultado, tmp_path, limite=2)).textos
+    textos = ler_html(gravar_html([resultado], tmp_path, limite=2)).textos
 
     assert "Nem todas as operações com diferença couberam: mostrando 2 de 3, as maiores." in textos
 
@@ -159,20 +159,10 @@ def test_html_traz_os_dois_graficos_em_svg_com_os_rotulos_da_idade_iguais_aos_do
     assert textos.index("Atributos Problemáticos") < textos.index(barras) < textos.index(no_tempo)
     inicio = textos.index(barras)
     assert [t for t in textos[inicio : textos.index(no_tempo)] if t in rotulos_do_excel] == rotulos_do_excel
-    assert [tag for tag, _ in leitor.tags].count("svg") == 2
+    assert [tag for tag, _ in leitor.tags].count("svg") == 4  # 2 por Batimento
     # A linha tem um ponto por Data-base comum
     pontos = next(attrs["points"] for tag, attrs in leitor.tags if tag == "polyline")
     assert len(pontos.split()) == len(gabarito.historico)
-
-
-def test_html_nao_tem_script_nem_aponta_para_nada_fora_do_arquivo(tmp_path, capsys):
-    _, linhas = conciliar_exemplo(tmp_path, capsys)
-
-    leitor = ler_html(linhas[1])
-    assert "script" not in [tag for tag, _ in leitor.tags]
-    referencias = [v for _, attrs in leitor.tags for k, v in attrs.items() if k in ("src", "href", "xlink:href")]
-    assert all(v.startswith("#") for v in referencias)
-    assert "url(" not in Path(linhas[1]).read_text(encoding="utf-8")
 
 
 def conciliar_csv(tmp_path, capsys, linhas_a: str, linhas_b: str):
@@ -236,3 +226,57 @@ def test_atributo_com_caractere_de_controle_sai_sem_ele_e_com_menor_e_comercial_
     textos = ler_html(html).textos
     assert {"Legado", '<b> & "x"'} <= set(textos)
     assert "b" not in [tag for tag, _ in ler_html(html).tags]
+
+
+UM_BATIMENTO = ("Chave,Data,Valor\n1,2026-09-30,10.00\n", "Chave,Data,Valor\n1,2026-09-30,15.00\n")
+
+
+def test_com_um_batimento_o_html_nao_tem_lista_nem_script_nem_aponta_para_fora(tmp_path, capsys):
+    _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
+
+    leitor = ler_html(html)
+    assert not {"script", "select", "section"} & {tag for tag, _ in leitor.tags}
+    assert "url(" not in Path(html).read_text(encoding="utf-8")
+
+
+def test_com_varios_batimentos_o_html_traz_a_lista_e_o_resumo_de_cada_um_com_so_o_primeiro_visivel(tmp_path, capsys):
+    gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
+
+    leitor = ler_html(linhas[1])
+    assert leitor.textos[1:4] == ["Resumo", "Valor", "Valor Juros"]  # a lista, na ordem da Base A, antes dos Resumos
+    secoes = [attrs for tag, attrs in leitor.tags if tag == "section"]
+    assert ["hidden" in attrs for attrs in secoes] == [False, True]
+    # O Resumo de cada Batimento, na ordem das seções: totais e Atributos Problemáticos do gabarito
+    totais = [t for t in leitor.textos if t in ("Total A", "Total B")]
+    assert totais == ["Total A", "Total B"] * 2
+    indices = [i for i, t in enumerate(leitor.textos) if t == "Total A"]
+    esperado = [(gabarito.total_a, gabarito.total_b), (gabarito.juros.total_a, gabarito.juros.total_b)]
+    for i, (total_a, total_b) in zip(indices, esperado):
+        assert leitor.textos[i + 1] == reais(total_a)
+        assert leitor.textos[leitor.textos.index("Total B", i) + 1] == reais(total_b)
+    assert [t for t in leitor.textos if t == "Atributos Problemáticos"] == ["Atributos Problemáticos"] * 2
+    assert reais(gabarito.juros.diferenca_absoluta) in leitor.textos
+
+
+def test_com_varios_batimentos_o_unico_script_e_o_filtro_e_nada_aponta_para_fora(tmp_path, capsys):
+    _, linhas = conciliar_exemplo(tmp_path, capsys)
+
+    leitor = ler_html(linhas[1])
+    assert [tag for tag, _ in leitor.tags].count("script") == 1
+    referencias = [v for _, attrs in leitor.tags for k, v in attrs.items() if k in ("src", "href", "xlink:href")]
+    assert all(v.startswith("#") for v in referencias)
+    texto = Path(linhas[1]).read_text(encoding="utf-8")
+    assert "url(" not in texto and "http" not in texto
+
+
+def test_nome_de_batimento_com_menor_comercial_e_aspas_sai_como_texto(tmp_path, capsys):
+    _, html = conciliar_csv(
+        tmp_path, capsys,
+        'Chave,Data,Valor,"Valor <b> & ""x"""\n1,2026-09-30,10.00,1.00\n',
+        'Chave,Data,Valor,"Valor <b> & ""x"""\n1,2026-09-30,15.00,2.00\n',
+    )
+
+    leitor = ler_html(html)
+    assert any(t.startswith("Valor <b> & ") for t in leitor.textos)
+    assert "b" not in [tag for tag, _ in leitor.tags]
+    assert "Valor &lt;b&gt; &amp; &quot;" in Path(html).read_text(encoding="utf-8")

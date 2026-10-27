@@ -73,6 +73,7 @@ class Resultado:
     # |Diferença| das Chaves) e AcimaDoPeso (fração da Diferença absoluta − fração do peso no total), decrescente.
     # O peso é |A|, ou |B| quando A é zero ou ausente. Valor vazio não entra.
     por_atributo: pl.DataFrame
+    batimento: str = ""  # o cabeçalho da coluna de valor na Base A (`Valor Juros`); quem concilia o põe
 
     @property
     def atributos_problematicos(self) -> pl.DataFrame:
