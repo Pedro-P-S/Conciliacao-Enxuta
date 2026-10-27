@@ -21,6 +21,8 @@ Sai um `.xlsx` com 5 abas:
 
 Ao lado do `.xlsx` sai um `.html` com o mesmo Resumo, para abrir no navegador.
 
+As bases podem trazer mais de uma coluna de valor para bater, como `Valor Juros` e `Valor Receita`. Cada uma é um Batimento, conciliado por inteiro. O `.xlsx` e o `.html` são um só para todos: as abas têm a coluna Batimento para filtrar, e o Resumo tem uma lista para escolher o Batimento.
+
 O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave, o Tipo do Erro, a linha sem Chave que casa com a Diferença de uma Chave, a Diferença acima do peso por Atributo e há quanto tempo cada Diferença está aberta.
 
 ## Histórias do usuário
@@ -83,6 +85,14 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 56. Como analista, quero digitar a Tolerância no formato brasileiro (`1.000` é R$ 1.000,00) e receber uma mensagem simples quando ela não for um valor válido.
 57. Como analista, quero que a Linha de uma Linha rejeitada de um `.xlsx` seja a linha da planilha, mesmo com linhas vazias antes do cabeçalho, para achá-la no arquivo.
 58. Como analista, quero que o `.html` mostre os mesmos números e gráficos do Resumo do Excel, também com uma Data-base só ou sem Diferença.
+59. Como analista, quero bater mais de uma coluna de valor entre as duas bases (`Valor Juros`, `Valor Receita`), cada uma conciliada por inteiro, sem configurar nada além do nome da coluna.
+60. Como analista, quero que o `Valor` puro continue funcionando sozinho, para os arquivos de hoje não mudarem.
+61. Como analista, quero ser avisado quando uma coluna de valor existe só numa base, sem parar a conciliação das outras.
+62. Como analista, quero que um Valor ilegível rejeite a linha só no seu Batimento, para não perder as outras colunas dela.
+63. Como analista, quero um `.xlsx` só, com a coluna Batimento nas abas para filtrar pelo cabeçalho.
+64. Como analista, quero escolher o Batimento numa lista no Resumo do Excel e ver o quadro, os avisos, os Atributos Problemáticos e os gráficos dele.
+65. Como analista, quero escolher o Batimento numa lista no `.html`, que continua abrindo sem internet.
+66. Como analista, quero um `.html` mais bonito e simples de ler.
 
 ## Decisões de implementação
 
@@ -90,7 +100,8 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - `leitura`: arquivo → a base lida e as Linhas rejeitadas. A base é um DataFrame com Chave (texto, sem espaço nas pontas), Data-base (data), Valor (centavos `Int64`) e Atributos (texto). As Linhas rejeitadas são um DataFrame com Linha, Chave, Data e Valor em texto, e o Motivo: a Chave e a Data como vieram no arquivo (número redondo sem `.0`); o Valor que foi lido (a linha caiu pela Data) no formato de reais `1.234.567,89`, com `-` no negativo, e o que não pôde ser lido como veio. Os nomes de coluna são reconhecidos sem diferenciar maiúscula, acento e espaço nas pontas. Só param a execução os erros do arquivo inteiro (ver Regras); a mensagem diz o arquivo.
 - `cruzamento`: a seam principal. `conciliar(base_a, base_b, tolerancia, rejeitadas_a, rejeitadas_b)` recebe as duas leituras e a Tolerância em centavos, e devolve um Resultado com tudo o que o Excel e o HTML mostram: os totais, a Idade por faixa, os avisos, a série do gráfico, a tabela por Tipo do Erro, a tabela por Atributo, as Operações com Diferença, as Linhas rejeitadas das duas bases e as Data-bases ignoradas. Só funções puras sobre DataFrames. A regra de sinal da linha sem Chave (+Valor na Base A, −Valor na Base B) fica num lugar só, usado por todas as contas que a precisam.
 - `excel`: Resultado → `.xlsx` com as 5 abas e a aba oculta dos gráficos. O limite de linhas é um parâmetro, com padrão 700.000. Expõe `quadro_do_resumo(resultado)`, os rótulos e os valores do quadro do Resumo, que o Excel e o HTML usam, no lugar de cada um juntar os rótulos com os valores. O corte por limite e o seu aviso ficam numa função só, usada pelas Operações e pelos Erros. Os reais formatados como texto (`1.234,56`) saem de uma função só, usada pela leitura, pelo Excel e pelo HTML. O `excel` e o `html` são os únicos lugares onde os centavos viram reais, e o comentário do módulo diz isso.
-- `html`: Resultado → `.html` com o Resumo. Arquivo único: os gráficos vão no próprio arquivo como SVG, sem script nem nada buscado na internet.
+- `html`: Resultados → `.html` com o Resumo. Arquivo único: os gráficos vão no próprio arquivo como SVG, sem nada buscado na internet; o único script é o filtro de Batimento.
+- **Batimentos:** a `leitura` devolve, para cada Batimento, a base (com o Valor daquele Batimento em centavos) e as Linhas rejeitadas. O `conciliar` não muda: roda uma vez por Batimento. O `excel` e o `html` recebem os Resultados de todos os Batimentos, na ordem da Base A, e gravam um arquivo só.
 - `cli`, `gui` e `gui_estado`. O pipeline ler → conciliar → gravar é um só, `conciliar_arquivos(base_a, base_b, tolerancia, pasta)` no `cli`, usado pela CLI e pelo `gui_estado`; ele lê as duas bases, concilia e grava o `.xlsx` e depois o `.html`. A GUI é casca: as regras ficam em `gui_estado`, que não importa Tkinter.
 - Gerador de bases de exemplo: o formato pedido não diferencia maiúscula (`"CSV"` grava `.csv`).
 
@@ -100,7 +111,8 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - **Data:** aceita data, data do Excel (número), `DD/MM/AAAA` e `AAAA-MM-DD`. O ano tem 4 dígitos (`31/01/26` é Data ilegível). Uma data do Excel acima de 2958465 (31/12/9999) é Data ilegível.
 - **Tipos do `.parquet`:** um Valor ou uma Data de um tipo que não é número, texto nem data (ex.: `bool`, `time`) é ilegível; o `decimal` é número; uma coluna `categorical` é lida pelo seu texto; uma coluna só com nulos é vazia. Nenhum desses para a execução.
 - **Atributo:** aceita qualquer conteúdo e vira texto; vazio vira nulo. Nunca rejeita a linha nem para a execução. O nome do Atributo é livre: um nome igual ao de uma coluna que a ferramenta usa por dentro (ex.: `Peso`, `Absoluta`, `Atributo`) não derruba a conciliação.
-- **Erros do arquivo inteiro:** param a execução, com uma mensagem simples que diz o arquivo, na CLI e na GUI, sem traceback: o arquivo que não existe ou não abre, vazio, corrompido, com campo a mais, numa codificação que não é UTF-8 nem cp1252 (um UTF-16 pede para salvar em UTF-8), com formato não suportado, sem `Chave`, `Data` ou `Valor`, ou com uma delas repetida (como `Data` e `DATA`, ou `Valor;Valor`), que a mensagem chama de coluna repetida. A pasta de saída que não existe também para, com mensagem simples. Um erro inesperado na CLI sai sem traceback na tela.
+- **Colunas de valor e Batimentos:** uma coluna chamada `Valor`, ou `Valor` + espaço ou `_` + nome (`Valor Juros`, `Valor_Juros`), é uma coluna de valor; o nome é comparado como o das outras colunas. Cada uma é um Batimento, chamado pelo que vem depois de `Valor` como está na Base A (`Juros`); o `Valor` puro é o Batimento `Valor`. Só vira Batimento a coluna que existe nas duas bases; a que está só numa base dá o aviso "Valor Juros só na Base A: não conciliado" na CLI e na GUI, e a execução segue. A ordem dos Batimentos é a das colunas na Base A. Cada Batimento é uma conciliação inteira, com as regras desta spec e a mesma Tolerância; nele, nenhuma outra coluna de valor vira Atributo, e as linhas sem Chave entram com o valor daquele Batimento. O Valor vazio ou ilegível rejeita a linha só no seu Batimento; a Data vazia ou ilegível rejeita a linha em todos. A Data-base mais recente é a maior comum, a mesma para todos; se todas as linhas de uma data caem pelo Valor num Batimento, a Diferença dele nessa data é zero.
+- **Erros do arquivo inteiro:** param a execução, com uma mensagem simples que diz o arquivo, na CLI e na GUI, sem traceback: o arquivo que não existe ou não abre, vazio, corrompido, com campo a mais, numa codificação que não é UTF-8 nem cp1252 (um UTF-16 pede para salvar em UTF-8), com formato não suportado, sem `Chave`, sem `Data` ou sem nenhuma coluna de valor (a mensagem diz que falta a coluna `Valor`), sem nenhum Batimento nas duas bases, ou com uma coluna fixa ou de valor repetida (como `Data` e `DATA`, ou `Valor;Valor`), que a mensagem chama de coluna repetida. A pasta de saída que não existe também para, com mensagem simples. Um erro inesperado na CLI sai sem traceback na tela.
 - **Preparação:** linhas sem Chave (vazia ou só espaço) saem do cruzamento pela Chave. Linhas com a mesma Chave e a mesma Data-base são somadas, e os Atributos vêm da primeira linha.
 - **Linhas sem Chave:** cada uma é uma Diferença do valor inteiro na sua Data-base: +Valor na Base A, −Valor na Base B, sem somar uma linha com outra. Como as Chaves Só em A ou Só em B, conta como Diferença quando |Valor| > Tolerância. Entram no Total A, no Total B, na Diferença total, na Diferença absoluta e no gráfico da Diferença no tempo. Entram também na Idade (ver abaixo). Não entram em Chaves com Diferença, Por Tipo do Erro, Por Atributo nem na aba de operações. Valem só nas Data-bases comuns, como o resto.
 - **Data-bases:** entram só as comuns às duas bases. A Data-base mais recente é a maior comum. As ignoradas vão para a aba Erros.
@@ -133,11 +145,14 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
   5. Um gráfico de linha da Diferença absoluta por Data-base.
 
   Os dados dos dois gráficos ficam na aba oculta `_grafico`. Sem tabela de histórico nem de Idade.
+
+  Com vários Batimentos, o Resumo tem no topo uma lista suspensa (validação de dados) com os Batimentos, na ordem da Base A, e abre no primeiro; sem "Todos". O quadro, os avisos, os Atributos Problemáticos e os dois gráficos seguem a escolha por fórmula, sem macro: os números de cada Batimento ficam na aba `_grafico`, e as células do Resumo e as séries dos gráficos os buscam pelo Batimento escolhido.
+- **Coluna Batimento:** as abas Por Tipo do Erro, Por Atributo, Operações com Diferença e Erros têm a coluna `Batimento` na frente, com filtro no cabeçalho, e as linhas vêm por Batimento e depois na ordem desta seção. O limite de linhas é da aba inteira; nas Operações, se cortar, ficam as maiores Diferenças absolutas de todos os Batimentos. Na aba Erros, a Linha rejeitada pela Data e a Data-base ignorada aparecem uma vez, com `Batimento` = `Todos`; a rejeitada pelo Valor leva o seu Batimento.
 - **Por Tipo do Erro:** colunas Tipo do Erro, Chaves e Diferença absoluta, ordenadas pela Diferença absoluta, com uma nota de que uma Chave pode contar em mais de um Tipo.
 - **Por Atributo:** colunas Atributo, Valor, Diferença absoluta e Diferença acima do peso (em %). Sem filtro. Sem Atributo nas bases, fica só o cabeçalho.
 - **Operações com Diferença:** colunas Chave, Valor A, Valor B, Diferença absoluta, Tipo do Erro, Aberta desde, Linha sem Chave e os Atributos com o nome original, ordenadas pela Diferença absoluta, decrescente. Valor A e Valor B mostram o sinal. Cabeçalho congelado e com filtro. Acima do limite, mostra as maiores, e um aviso na linha 1 diz "Nem todas as operações com diferença couberam: mostrando 700.000 de N, as maiores."; o cabeçalho passa para a linha 2. A coluna Linha sem Chave é texto, como `−10.000,00 em 15/03/2026 na Base B` (o valor da linha, a Data-base em que foi comparada e a base), com várias separadas por `; `, e fica vazia quando a Chave não casa com nenhuma.
 - **Erros:** colunas Base, Linha, Chave, Data, Valor e Motivo. Primeiro, uma linha por Data-base ignorada, com a Base que a tem, a Data e o Motivo `Data-base só na Base A` ou `Data-base só na Base B`. Depois, as Linhas rejeitadas da Base A e da Base B, na ordem do arquivo, com a Chave e a Data como vieram e o Valor em reais quando foi lido (`1.234,56`), ou como veio quando não. A aba existe sempre; sem erros, fica só o cabeçalho. Cabeçalho congelado e com filtro. Acima do limite, o mesmo corte e o mesmo tipo de aviso das Operações: "Nem todos os erros couberam: mostrando 700.000 de N."
-- **HTML:** o mesmo Resumo do Excel, na mesma ordem e com os mesmos rótulos, com os dois gráficos em SVG. Um arquivo só, que abre sem internet. Mostra o que o Excel mostra: o percentual arredonda como no Excel; o eixo do gráfico mostra 0 quando não há Diferença; com uma Data-base só, o gráfico de linha mostra o ponto e a data uma vez; o caractere de controle sai do texto, como no Excel; `<`, `&` e aspas aparecem como texto.
+- **HTML:** o mesmo Resumo do Excel, na mesma ordem e com os mesmos rótulos, com os dois gráficos em SVG. Um arquivo só, que abre sem internet, sem biblioteca. Com vários Batimentos, uma lista suspensa no topo e um JavaScript pequeno mostram o Resumo do Batimento escolhido; os Resumos de todos já vêm prontos no arquivo, e sem JavaScript aparece o primeiro. Sem "Todos". O visual é mais bonito e simples, com um tema só, e segue a skill `dataviz` (cores, gráficos, quadro de números e layout). Mostra o que o Excel mostra: o percentual arredonda como no Excel; o eixo do gráfico mostra 0 quando não há Diferença; com uma Data-base só, o gráfico de linha mostra o ponto e a data uma vez; o caractere de controle sai do texto, como no Excel; `<`, `&` e aspas aparecem como texto.
 
 **Interface:**
 - **GUI Tkinter:** Base A e Base B, cada uma com o botão Procurar, a Tolerância (padrão 1,00) e o botão Conciliar. No fim, mostra o caminho do `.xlsx` e um botão para abrir a pasta. Os erros aparecem em linguagem simples, e o traceback vai para `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`. O caminho colado com espaço nas pontas ou entre aspas (o "Copiar como caminho" do Windows) é aceito. Se o `erros.log` não pode ser gravado, a mensagem simples aparece mesmo assim, e o resultado da execução anterior sai da tela.
@@ -162,6 +177,16 @@ Origem: `GRILL.md`, decisões 27 a 34, e o briefing da auditoria. Histórias 47 
 - **Implementação, sem mudar o que o usuário vê:** um pipeline só, `conciliar_arquivos`, usado pela CLI e pelo `gui_estado`; `quadro_do_resumo` no `excel`, usado pelo Excel e pelo HTML; o corte por limite e o seu aviso numa função só; os reais em texto numa função só; a regra de sinal da linha sem Chave num lugar só; o gerador de exemplo aceita o formato sem diferenciar maiúscula.
 - **Seams dos testes:** as que já existem, sem seam nova. A seam 1 (`conciliar`) para o Atributo com nome interno; a leitura para Valor, Data e `.parquet`; a seam 2, de ponta a ponta pela CLI e pelo `gui_estado` (que passam pelo `conciliar_arquivos`), para os erros do arquivo inteiro, a gravação, a Tolerância, a GUI e o HTML.
 
+### Decisões de 27/10/2026: vários Batimentos
+
+Origem: `GRILL.md`, decisões 35 a 41. Histórias 59 a 66.
+
+- **Convenção pelo nome, sem configuração:** `Valor` e `Valor <nome>` são colunas de valor; cada uma, presente nas duas bases, é um Batimento.
+- **Cada Batimento é uma conciliação inteira:** o `conciliar` roda uma vez por Batimento, sem mudar. A leitura separa as bases por Batimento e as Linhas rejeitadas pelo Valor de cada um.
+- **Uma saída para todos:** um `.xlsx` (coluna `Batimento` nas abas, lista suspensa no Resumo com fórmulas) e um `.html` (lista suspensa com JavaScript). O HTML deixa de ser sem script: o JavaScript é só o filtro.
+- **Visual do HTML:** segue a skill `dataviz`, com um tema só. Os subagentes não carregam essa skill sozinhos: quem escrever o ticket do HTML põe nele as regras da skill que valem para a página.
+- **Seams dos testes:** as que já existem, sem seam nova. A leitura para a convenção de nome e a rejeição por Batimento; a seam 1 (`conciliar`) não muda; a seam 2, de ponta a ponta, para o arquivo único, a coluna Batimento, a lista e as fórmulas do Resumo, o corte da aba inteira, a aba Erros com `Todos` e o filtro do `.html`.
+
 ## Testes
 
 - **Um bom teste** confere comportamento externo: dadas estas bases, o resultado, o Excel ou o HTML mostram isto. Não testa função interna.
@@ -173,15 +198,20 @@ Origem: `GRILL.md`, decisões 27 a 34, e o briefing da auditoria. Histórias 47 
   - leitura: os separadores aceitos e os ilegíveis do Valor (`1,234.56`, `1.2.3,4`, `1.2,3`, `0.125`, `00.500`, `1.234`), o Valor fora de `Int64` em texto e como inteiro de `.parquet`, a Data `31/01/26`, a data do Excel acima de 2958465, as colunas `decimal`, `bool`, `null`, `categorical` e `time` de um `.parquet`, e a Linha de um `.xlsx` com linhas vazias antes do cabeçalho;
   - de ponta a ponta: cada erro do arquivo inteiro com mensagem simples e sem traceback (inclusive UTF-16 e `Valor;Valor`), a pasta de saída que não existe, o erro inesperado na CLI, o `.xlsx` aberto que não deixa mudar o `.html`, a Tolerância no formato brasileiro e a inválida ou grande demais, o caminho com aspas ou espaço na GUI, o `erros.log` que não grava, e no `.html` o percentual, o eixo com 0, uma Data-base só, o caractere de controle e o escape de `<`, `&` e aspas;
   - o gerador de exemplo com o formato `"CSV"` grava `.csv`.
+- **Vários Batimentos (27/10/2026):**
+  - leitura: `Valor Juros`, `Valor_Juros` e `valor juros` são o mesmo Batimento; o `Valor` puro sozinho continua funcionando; a coluna de valor só numa base dá o aviso e não para; sem nenhum Batimento nas duas bases, para com mensagem simples; o Valor ilegível rejeita a linha só no seu Batimento, e a Data ilegível em todos; uma coluna de valor não vira Atributo em outro Batimento;
+  - de ponta a ponta: um `.xlsx` e um `.html` só, com o nome de hoje; a coluna `Batimento` nas quatro abas, na ordem da Base A; o corte da aba inteira com as maiores de todos os Batimentos; a aba Erros com `Todos` para a Data e a Data-base ignorada; no Resumo, a lista suspensa com os Batimentos e as fórmulas que buscam o escolhido na `_grafico` (o teste confere as fórmulas e a `_grafico`, porque o openpyxl não calcula); no `.html`, a lista, os Resumos de todos e nada buscado fora do arquivo;
+  - o gerador de exemplo planta um segundo Batimento com Diferenças próprias.
 - **GUI:** sem teste de clique. `gui_estado` é testado pela seam 1 ou direto, e o autoteste confere que a janela monta.
 - **Prior art:** o projeto grande testa assim. Prepara duas bases, cruza, confere contra o gabarito do gerador de exemplo e lê o `.xlsx` com openpyxl.
 - Todo ticket termina com um teste com olhos de usuário em `exemplo\`.
 
 ## Fora do escopo
 
-- Dashboard HTML (só o Resumo vai para HTML) e saídas em CSV ou Parquet.
+- Dashboard HTML (só o Resumo vai para HTML, com o filtro de Batimento) e saídas em CSV ou Parquet.
+- "Todos" os Batimentos somados no Resumo.
 - Histórico persistido entre Execuções, Justificativas e Aging com episódios.
-- Bases Auxiliares, mais de um Par de Valor, Chave composta e mapeamento de colunas.
+- Bases Auxiliares, Chave composta, mapeamento de colunas e arquivo de configuração.
 - Qualidade, Pareto, Compensação Oculta e Pares Prováveis.
 - Os Tipos Valor Fixo, Percentual Constante, Ponta Zerada e Arredondamento.
 - Mostrar Abertas e Regularizadas por Data-base.

@@ -20,8 +20,12 @@ Uma linha com a Chave vazia, por exemplo um lançamento manual. Fica fora do cru
 **Linha rejeitada**:
 Uma linha do arquivo que fica fora de tudo porque a Data ou o Valor estão vazios ou não puderam ser lidos. Aparece com o motivo na aba Erros.
 
+**Batimento**:
+Uma coluna de valor conciliada entre a Base A e a Base B. `Valor` é o Batimento `Valor`; `Valor Juros` é o Batimento `Juros`. Cada Batimento é uma conciliação inteira, e o resultado de todos sai no mesmo Excel e no mesmo HTML.
+_Evitar_: Par de Valor, mapeamento
+
 **Atributo**:
-Qualquer coluna além de Chave, Data e Valor, com o nome que o usuário quiser. Serve para achar quais valores têm Diferença acima do peso.
+Qualquer coluna além de Chave, Data e das colunas de valor, com o nome que o usuário quiser. Serve para achar quais valores têm Diferença acima do peso.
 
 **Data-base**:
 Cada valor distinto da coluna `Data`. Uma base pode trazer várias Data-bases, por exemplo uma posição por dia útil durante seis meses, sem precisar ter todos os dias.

@@ -4,13 +4,13 @@ Registro das decisões. O glossário fica em `CONTEXT.md`. Quando uma decisão m
 
 ## Entrada
 
-1. **Sem mapeamento de colunas.** O usuário escolhe só os dois arquivos. As colunas `Chave`, `Data` e `Valor` têm nome fixo; o resto é Atributo.
+1. **Sem mapeamento de colunas.** O usuário escolhe só os dois arquivos. As colunas `Chave` e `Data` têm nome fixo, e as de valor seguem a convenção da decisão 35; o resto é Atributo.
 2. **Várias Data-bases no mesmo arquivo** (ex.: dias úteis de 6 meses, sem precisar ter todos os dias).
 3. **Tolerância:** diferença de até R$ 1,00 (padrão, o usuário pode mudar) conta como zero.
 
 ## O que a ferramenta faz
 
-4. **Núcleo:** cruzar pela Chave, dar o Tipo do Erro, mostrar os valores de Atributo com Diferença acima do peso e acompanhar a Diferença no tempo. Ficam fora: Aging, Justificativas, Pareto, Compensação Oculta, Bases Auxiliares, dashboard HTML (o Resumo em HTML é a exceção, ver 23).
+4. **Núcleo:** cruzar pela Chave, dar o Tipo do Erro, mostrar os valores de Atributo com Diferença acima do peso e acompanhar a Diferença no tempo. Ficam fora: Aging, Justificativas, Pareto, Compensação Oculta, Bases Auxiliares, dashboard HTML (o Resumo em HTML é a exceção, ver 23 e 41).
 5. **Tipo do Erro lista todos os que se aplicam** (sem prioridade): Só em A, Só em B, Sinal invertido, Duplicado, Vírgula deslocada, Dígitos trocados, Casa com linha sem Chave, Sem padrão. Cortados: Valor Fixo, Percentual Constante, Ponta Zerada, Arredondamento (a Tolerância já zera).
 6. **Aberta desde = última abertura.** Se a Diferença some e volta, vale a data da volta. Se só muda de valor sem sumir, mantém a data original.
 
@@ -50,4 +50,14 @@ Registro das decisões. O glossário fica em `CONTEXT.md`. Quando uma decisão m
 32. **Tolerância:** lida no formato brasileiro, como o Valor (`1.000` é R$ 1.000,00). Uma Tolerância que não vira número, ou grande demais, dá uma mensagem simples. O arredondamento dela fica como está (pergunta aberta).
 33. **Linha da Linha rejeitada no `.xlsx`:** a do arquivo, contando as linhas vazias antes do cabeçalho.
 34. **HTML igual ao Excel:** o percentual arredonda como no Excel; o eixo do gráfico mostra 0 quando não há Diferença; com uma Data-base só, o gráfico de linha mostra o ponto e a data uma vez; o caractere de controle sai do texto, como no Excel.
+
+## Vários batimentos (27/10/2026)
+
+35. **Coluna de valor:** `Valor` + espaço ou `_` + nome (ex.: `Valor Juros`, `Valor_Juros`) é um Batimento, com o nome que vem depois (`Juros`). O nome é comparado sem maiúscula, acento e espaço nas pontas, como as outras colunas. O `Valor` puro também é um Batimento, chamado `Valor`, e deixa de ser obrigatório: basta uma coluna de valor. Sem nenhuma, a mensagem continua dizendo que falta a coluna Valor.
+36. **Coluna de valor só numa base:** não vira Batimento; a CLI e a GUI avisam ("Valor Juros só na Base A: não conciliado") e a execução segue. Sem nenhum Batimento nas duas bases, para com uma mensagem simples.
+37. **Cada Batimento é uma conciliação inteira**, com as regras de hoje e a mesma Tolerância. Nele, nenhuma outra coluna de valor vira Atributo. As linhas sem Chave entram com o valor daquele Batimento. O Valor vazio ou ilegível rejeita a linha só no seu Batimento; a Data vazia ou ilegível rejeita em todos.
+38. **Ordem dos Batimentos:** a das colunas de valor na Base A.
+39. **Um `.xlsx` e um `.html` para todos os Batimentos**, com o nome de hoje. A Data-base mais recente é uma só, a maior comum. Se todas as linhas de uma data caem pelo Valor num Batimento, a Diferença dele nessa data é zero, sem tratamento especial.
+40. **Excel:** as abas Por Tipo do Erro, Por Atributo, Operações com Diferença e Erros ganham a coluna `Batimento` na frente, e o filtro do cabeçalho filtra por ela. As linhas vêm por Batimento e depois na ordem de hoje. O limite de 700 mil é da aba inteira; se cortar, ficam as maiores de todos os Batimentos. Na aba Erros, a linha rejeitada pela Data e a Data-base ignorada aparecem uma vez, com `Batimento` = `Todos`. O Resumo tem uma lista suspensa no topo com os Batimentos; o quadro, os avisos, os Atributos Problemáticos e os gráficos seguem a escolha por fórmula, sem macro. Sem "Todos" no Resumo; abre no primeiro Batimento.
+41. **HTML:** uma lista suspensa no topo, e um JavaScript pequeno mostra o Resumo do Batimento escolhido. Os Resumos já vêm prontos no arquivo; sem JavaScript, aparece o primeiro. Continua um arquivo só, que abre sem internet e sem biblioteca. Sem "Todos". O visual fica mais bonito e simples, com um tema só, seguindo a skill `dataviz`.
 
