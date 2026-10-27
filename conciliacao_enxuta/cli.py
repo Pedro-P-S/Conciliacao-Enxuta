@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -28,7 +29,10 @@ def conciliar_batimentos(base_a: Path, base_b: Path, tolerancia: int) -> tuple[l
     avisos = [f"{lida.coluna} só na Base A: não conciliado" for chave, lida in lidas_a.items() if chave not in lidas_b]
     avisos += [f"{lida.coluna} só na Base B: não conciliado" for chave, lida in lidas_b.items() if chave not in lidas_a]
     resultados = [
-        conciliar(lidas_a[c].base, lidas_b[c].base, tolerancia, lidas_a[c].rejeitadas, lidas_b[c].rejeitadas)
+        replace(
+            conciliar(lidas_a[c].base, lidas_b[c].base, tolerancia, lidas_a[c].rejeitadas, lidas_b[c].rejeitadas),
+            batimento=lidas_a[c].nome,
+        )
         for c in comuns
     ]
     return resultados, avisos
@@ -39,10 +43,10 @@ def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path)
     resultados, avisos = conciliar_batimentos(base_a, base_b, tolerancia)
     if not pasta.is_dir():
         raise ArquivoNaoGravado(f"{pasta}: a pasta de saída não existe.")
-    # shortcut: o `excel` e o `html` desenham só o primeiro Batimento; sair quando os tickets 40, 41 e 42 os ensinarem
+    # shortcut: o Resumo do `.xlsx` e o `.html` desenham só o primeiro Batimento; sair quando os tickets 41 e 42 os ensinarem
     resultado = resultados[0]
     try:
-        xlsx = gravar_excel(resultado, pasta)
+        xlsx = gravar_excel(resultados, pasta)
     except PermissionError as erro:
         raise ArquivoNaoGravado(
             f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."

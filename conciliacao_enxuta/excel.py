@@ -61,14 +61,16 @@ def cortar(tabela: pl.DataFrame, limite: int, aviso: str) -> tuple[pl.DataFrame,
     return tabela.head(limite), aviso.format(limite=milhar(limite), total=milhar(tabela.height))
 
 
-def avisos(resultado: Resultado, limite: int) -> list[str]:
-    """Os avisos do Resumo que acontecem: Linhas rejeitadas e corte das operações acima de `limite`."""
+def avisos(resultado: Resultado, limite: int, operacoes: int | None = None) -> list[str]:
+    """Os avisos do Resumo que acontecem: Linhas rejeitadas e corte das operações acima de `limite`.
+
+    `operacoes` é o total de operações da aba inteira, quando a aba junta vários Batimentos."""
     lista = []
     if resultado.rejeitadas.height:
         lista.append(f"Linhas rejeitadas: {milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
-    _, corte = cortar(resultado.operacoes, limite, CORTE_DAS_OPERACOES)
-    if corte:
-        lista.append(corte)
+    total = resultado.operacoes.height if operacoes is None else operacoes
+    if total > limite:
+        lista.append(CORTE_DAS_OPERACOES.format(limite=milhar(limite), total=milhar(total)))
     return lista
 
 
@@ -105,11 +107,14 @@ def _linha_sem_chave(casa: list[dict] | None) -> str | None:
     return "; ".join(textos)
 
 
-def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
+def gravar_excel(resultados: list[Resultado], pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
     """Grava `conciliacao_AAAA-MM-DD.xlsx` em `pasta`, sobrescrevendo, e devolve o caminho.
 
-    A aba Operações com Diferença mostra no máximo `limite` linhas, as maiores.
+    `resultados` são os Batimentos, na ordem da Base A. As quatro abas de tabelas trazem a coluna Batimento na
+    frente; cada uma mostra no máximo `limite` linhas.
     """
+    # shortcut: o Resumo e os gráficos desenham só o primeiro Batimento, até o ticket 41
+    resultado = resultados[0]
     caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -132,7 +137,9 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
             ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
         linha += 2
 
-    for linha, aviso in enumerate(avisos(resultado, limite), start=linha):
+    for linha, aviso in enumerate(
+        avisos(resultado, limite, sum(r.operacoes.height for r in resultados)), start=linha
+    ):
         ws.cell(linha, 1, aviso)
 
     # Os Atributos Problemáticos, uma linha abaixo dos avisos; sem Atributo acima do peso, a tabela não aparece
@@ -146,10 +153,10 @@ def gravar_excel(resultado: Resultado, pasta: str | Path, limite: int = LIMITE_D
     ws.column_dimensions["C"].width = 20
     ws.column_dimensions["D"].width = 22
 
-    _aba_por_tipo(wb, resultado)
-    _aba_por_atributo(wb, resultado)
-    _aba_operacoes(wb, resultado, limite)
-    _aba_erros(wb, resultado, limite)
+    _aba_por_tipo(wb, resultados)
+    _aba_por_atributo(wb, resultados)
+    _aba_operacoes(wb, resultados, limite)
+    _aba_erros(wb, resultados, limite)
     _graficos(wb, ws, resultado)
 
     wb.save(caminho)
@@ -210,43 +217,53 @@ def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
     resumo.add_chart(linha_no_tempo, f"A{inicio + 20}")  # 9 cm de altura ocupam umas 17 linhas
 
 
-def _aba_por_tipo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
-    """Quanto cada Tipo do Erro explica, já na ordem do Resultado, e a nota abaixo da tabela."""
+def _com_batimento(resultados: list[Resultado], campo: str) -> pl.DataFrame:
+    """A tabela `campo` de cada Resultado, uma depois da outra, com a coluna Batimento na frente."""
+    return pl.concat([getattr(r, campo).select(pl.lit(r.batimento).alias("Batimento"), pl.all()) for r in resultados])
+
+
+def _aba_por_tipo(wb: openpyxl.Workbook, resultados: list[Resultado]) -> None:
+    """Quanto cada Tipo do Erro explica, por Batimento e na ordem do Resultado, e a nota abaixo da tabela."""
     ws = wb.create_sheet("Por Tipo do Erro")
-    for coluna, titulo in enumerate(["Tipo do Erro", "Chaves", "Diferença absoluta"], start=1):
+    tabela = _com_batimento(resultados, "por_tipo")
+    for coluna, titulo in enumerate(["Batimento", "Tipo do Erro", "Chaves", "Diferença absoluta"], start=1):
         ws.cell(1, coluna, titulo).font = Font(bold=True)
-    for linha, (tipo, chaves, absoluta) in enumerate(resultado.por_tipo.iter_rows(), start=2):
-        ws.cell(linha, 1, tipo)
-        ws.cell(linha, 2, chaves).number_format = FORMATO_INTEIRO
-        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
-    ws.cell(resultado.por_tipo.height + 3, 1, NOTA_POR_TIPO)  # uma linha em branco abaixo da tabela
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 12
-    ws.column_dimensions["C"].width = 20
+    for linha, (batimento, tipo, chaves, absoluta) in enumerate(tabela.iter_rows(), start=2):
+        _do_arquivo(ws, linha, 1, batimento)
+        ws.cell(linha, 2, tipo)
+        ws.cell(linha, 3, chaves).number_format = FORMATO_INTEIRO
+        ws.cell(linha, 4, absoluta / 100).number_format = FORMATO_REAIS
+    ws.auto_filter.ref = f"A1:D{tabela.height + 1}"
+    ws.cell(tabela.height + 3, 1, NOTA_POR_TIPO)  # uma linha em branco abaixo da tabela
+    for letra, largura in zip("ABCD", (16, 24, 12, 20)):
+        ws.column_dimensions[letra].width = largura
 
 
-def _aba_por_atributo(wb: openpyxl.Workbook, resultado: Resultado) -> None:
-    """Os valores de Atributo com Diferença acima do peso, já na ordem do Resultado (do maior para o menor); sem filtro.
+def _aba_por_atributo(wb: openpyxl.Workbook, resultados: list[Resultado]) -> None:
+    """Os valores de Atributo com Diferença acima do peso, por Batimento e na ordem do Resultado (do maior para o
+    menor); com filtro.
 
     Sem Atributo nas bases, fica só o cabeçalho.
     """
     ws = wb.create_sheet("Por Atributo")
-    _tabela_por_atributo(ws, 1, resultado.por_atributo)
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 20
-    ws.column_dimensions["D"].width = 16
+    tabela = _com_batimento(resultados, "por_atributo")
+    _tabela_por_atributo(ws, 1, tabela, com_batimento=True)
+    ws.auto_filter.ref = f"A1:E{tabela.height + 1}"
+    for letra, largura in zip("ABCDE", (16, 24, 24, 20, 16)):
+        ws.column_dimensions[letra].width = largura
 
 
-def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela) -> None:
-    """Cabeçalho e linhas de uma tabela no formato de `Resultado.por_atributo`, a partir de `linha_do_cabecalho`."""
-    for coluna, titulo in enumerate(TITULOS_POR_ATRIBUTO, start=1):
+def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela, com_batimento: bool = False) -> None:
+    """Cabeçalho e linhas de uma tabela no formato de `Resultado.por_atributo`, a partir de `linha_do_cabecalho`;
+    com `com_batimento`, a tabela traz o Batimento como primeira coluna."""
+    titulos = (("Batimento",) if com_batimento else ()) + TITULOS_POR_ATRIBUTO
+    for coluna, titulo in enumerate(titulos, start=1):
         ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
-    for linha, (atributo, valor, absoluta, acima_do_peso) in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
-        _do_arquivo(ws, linha, 1, atributo)
-        _do_arquivo(ws, linha, 2, valor)
-        ws.cell(linha, 3, absoluta / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, 4, acima_do_peso).number_format = FORMATO_PERCENTUAL
+    for linha, valores in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
+        for coluna, valor in enumerate(valores[:-2], start=1):
+            _do_arquivo(ws, linha, coluna, valor)
+        ws.cell(linha, len(titulos) - 1, valores[-2] / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, len(titulos), valores[-1]).number_format = FORMATO_PERCENTUAL
 
 
 def _aviso_na_linha_1(ws, aviso: str | None) -> int:
@@ -257,54 +274,56 @@ def _aviso_na_linha_1(ws, aviso: str | None) -> int:
     return 2
 
 
-def _aba_operacoes(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None:
-    """As Chaves com Diferença, uma por linha, já na ordem do Resultado; cabeçalho congelado e com filtro.
+def _aba_operacoes(wb: openpyxl.Workbook, resultados: list[Resultado], limite: int) -> None:
+    """As Chaves com Diferença, uma por linha, por Batimento e na ordem do Resultado; cabeçalho congelado e com filtro.
 
-    Depois do Aberta desde vêm a Linha sem Chave e os Atributos, com o nome original. Mostra só as `limite`
-    primeiras (as maiores); quando há corte, o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
+    Depois do Aberta desde vêm a Linha sem Chave e os Atributos, com o nome original. O limite é da aba inteira:
+    acima dele ficam as maiores Diferenças absolutas de todos os Batimentos; quando há corte, o aviso vai na linha 1
+    e o cabeçalho passa para a linha 2.
     """
     ws = wb.create_sheet("Operações com Diferença")
-    operacoes, aviso = cortar(resultado.operacoes, limite, CORTE_DAS_OPERACOES)
+    todas = _com_batimento(resultados, "operacoes").with_row_index("_i")
+    atributos = pl.concat([r.atributos for r in resultados], how="diagonal")  # alinhados com `todas` pela ordem
+    # Corta pelas maiores (o sort é estável) e volta à ordem por Batimento
+    por_tamanho = todas.sort(pl.col("Diferenca").abs(), descending=True, maintain_order=True)
+    operacoes, aviso = cortar(por_tamanho, limite, CORTE_DAS_OPERACOES)
+    operacoes = operacoes.sort("_i")
+    if atributos.width:  # sem Atributo, o DataFrame não tem linhas
+        atributos = atributos[operacoes["_i"].to_list()]
     linha_do_cabecalho = _aviso_na_linha_1(ws, aviso)
-    # Operações e Atributos se alinham pela ordem das linhas: cortam juntos
-    atributos = resultado.atributos.head(limite)
     titulos = [
-        "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde", "Linha sem Chave"
+        "Batimento", "Chave", "Valor A", "Valor B", "Diferença absoluta", "Tipo do Erro", "Aberta desde",
+        "Linha sem Chave",
     ]
     primeiro_atributo = len(titulos) + 1
     titulos += atributos.columns
     for coluna, titulo in enumerate(titulos, start=1):
         _do_arquivo(ws, linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
-    for linha, (chave, a, b, diferenca, tipo, desde, ou_antes, casa) in enumerate(operacoes.iter_rows(), start=linha_do_cabecalho + 1):
-        _do_arquivo(ws, linha, 1, chave)
+    for linha, (_, batimento, chave, a, b, diferenca, tipo, desde, ou_antes, casa) in enumerate(
+        operacoes.iter_rows(), start=linha_do_cabecalho + 1
+    ):
+        _do_arquivo(ws, linha, 1, batimento)
+        _do_arquivo(ws, linha, 2, chave)
         # Valor A e Valor B com o sinal; a Diferença sem
-        for coluna, centavos in enumerate((a, b, abs(diferenca)), start=2):
+        for coluna, centavos in enumerate((a, b, abs(diferenca)), start=3):
             ws.cell(linha, coluna, centavos / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, 5, tipo)
-        ws.cell(linha, 6, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
-        ws.cell(linha, 7, _linha_sem_chave(casa))
+        ws.cell(linha, 6, tipo)
+        ws.cell(linha, 7, desde).number_format = FORMATO_DATA_OU_ANTES if ou_antes else FORMATO_DATA
+        ws.cell(linha, 8, _linha_sem_chave(casa))
     for coluna, atributo in enumerate(atributos.iter_columns(), start=primeiro_atributo):
         for linha, valor in enumerate(atributo, start=linha_do_cabecalho + 1):
             _do_arquivo(ws, linha, coluna, valor)
         ws.column_dimensions[get_column_letter(coluna)].width = 18
     ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
     ws.auto_filter.ref = f"A{linha_do_cabecalho}:{get_column_letter(len(titulos))}{linha_do_cabecalho + operacoes.height}"
-    ws.column_dimensions["A"].width = 24
-    for letra in "BCD":
-        ws.column_dimensions[letra].width = 18
-    ws.column_dimensions["E"].width = 24
-    ws.column_dimensions["F"].width = 22
-    ws.column_dimensions["G"].width = 36
+    for letra, largura in zip("ABCDEFGH", (16, 24, 18, 18, 18, 24, 22, 36)):
+        ws.column_dimensions[letra].width = largura
 
 
-def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None:
-    """As Data-bases ignoradas, em ordem de data, e depois as Linhas rejeitadas da Base A e da Base B, na ordem do
-    arquivo; cabeçalho congelado e com filtro.
-
-    Existe sempre: sem erros, fica só o cabeçalho. Mostra só os `limite` primeiros; quando há corte, o aviso vai
-    na linha 1 e o cabeçalho passa para a linha 2.
-    """
-    ws = wb.create_sheet("Erros")
+def _erros_do_batimento(resultado: Resultado, primeiro: bool) -> pl.DataFrame:
+    """As Data-bases ignoradas, em ordem de data, e depois as Linhas rejeitadas da Base A e da Base B, com a coluna
+    Batimento na frente: `Todos` para o que vale para todos (a Data-base ignorada e a Linha rejeitada pela Data) e o
+    nome do Batimento para a rejeitada pelo Valor. Só o `primeiro` Batimento traz o que vale para todos."""
     ignoradas = sorted(
         [(d, "Base A") for d in resultado.data_bases_so_em_a] + [(d, "Base B") for d in resultado.data_bases_so_em_b]
     )
@@ -318,6 +337,23 @@ def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None
         schema={"Base": pl.String, "Data": pl.String, "Motivo": pl.String},
     )
     erros = pl.concat([data_bases, resultado.rejeitadas], how="diagonal").select(resultado.rejeitadas.columns)
+    pelo_valor = pl.col("Motivo").str.starts_with("Valor")
+    if not primeiro:
+        erros = erros.filter(pelo_valor)
+    return erros.select(
+        pl.when(pelo_valor).then(pl.lit(resultado.batimento)).otherwise(pl.lit("Todos")).alias("Batimento"), pl.all()
+    )
+
+
+def _aba_erros(wb: openpyxl.Workbook, resultados: list[Resultado], limite: int) -> None:
+    """Por Batimento, as Data-bases ignoradas e as Linhas rejeitadas (ver `_erros_do_batimento`); cabeçalho
+    congelado e com filtro.
+
+    Existe sempre: sem erros, fica só o cabeçalho. Mostra só os `limite` primeiros da aba inteira; quando há corte,
+    o aviso vai na linha 1 e o cabeçalho passa para a linha 2.
+    """
+    ws = wb.create_sheet("Erros")
+    erros = pl.concat([_erros_do_batimento(r, i == 0) for i, r in enumerate(resultados)])
     erros, aviso = cortar(erros, limite, CORTE_DOS_ERROS)
     linha_do_cabecalho = _aviso_na_linha_1(ws, aviso)
     for coluna, titulo in enumerate(erros.columns, start=1):
@@ -326,6 +362,6 @@ def _aba_erros(wb: openpyxl.Workbook, resultado: Resultado, limite: int) -> None
         for coluna, valor in enumerate(valores, start=1):
             _do_arquivo(ws, linha, coluna, valor)
     ws.freeze_panes = f"A{linha_do_cabecalho + 1}"
-    ws.auto_filter.ref = f"A{linha_do_cabecalho}:F{linha_do_cabecalho + erros.height}"
-    for letra, largura in zip("ABCDEF", (10, 10, 24, 14, 18, 18)):
+    ws.auto_filter.ref = f"A{linha_do_cabecalho}:G{linha_do_cabecalho + erros.height}"
+    for letra, largura in zip("ABCDEFG", (16, 10, 10, 24, 14, 18, 18)):
         ws.column_dimensions[letra].width = largura
