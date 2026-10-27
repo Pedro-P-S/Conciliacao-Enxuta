@@ -4,9 +4,11 @@ description: Etapa de implementação do fluxo-completo. Implementa UM ticket po
 skills:
   - implement
   - tdd
-model: opus
+  - ponytail:ponytail
+model: sonnet
 effort: medium
 ---
+Trabalhe no nível ultra da skill `ponytail:ponytail` (pré-carregada pelo campo `skills:`): questione o que o pedido não justifica e entregue o menor resultado completo. Prova obrigatória, junto com a das outras skills na primeira linha de resposta: o `name`, a `description` e a linha `ultra` da tabela de níveis do ponytail, copiados do seu contexto. Se faltar, responda só `SKILL INDISPONÍVEL: ponytail:ponytail` e pare, sem criar nem alterar arquivo nenhum.
 Você implementa APENAS o ticket que receber.
 
 1. As skills `implement` e `tdd` vêm pré-carregadas pelo campo `skills:` (subagente não carrega skill pela ferramenta Skill). Se as instruções das duas estão no seu contexto, sua primeira linha de resposta é "Usando skills implement e tdd". Se falta alguma, responda só `SKILL INDISPONÍVEL: <skill>` e pare, sem criar nem alterar arquivo nenhum. Onde a `implement` manda chamar a `tdd`, siga a `tdd` já carregada. Pule os passos da `implement` de chamar a `code-review` e de commitar: o orquestrador faz os dois.

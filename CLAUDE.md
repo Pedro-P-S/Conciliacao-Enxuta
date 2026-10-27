@@ -43,7 +43,7 @@ O `.venv` é do projeto, com os pacotes de `requirements.txt`. O caminho é abso
 
 ## Agentes
 
-O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer`, `code-reviewer` (skill code-review) e `reviewer` (skill ponytail-review). Mudanças em `.claude/` só valem numa sessão nova aberta no master: as skills vêm do checkout principal, e os agentes são carregados quando a sessão começa.
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → 1 review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implement-spec` (chama um `implementer` por ticket) e `code-reviewer` (skill code-review, a única review). Os agentes de spec, tickets e implementação rodam em Sonnet médio; o de review em Opus. Mudanças em `.claude/` só valem numa sessão nova aberta no master: as skills vêm do checkout principal, e os agentes são carregados quando a sessão começa.
 
 ## Issue tracker
 
