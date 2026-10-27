@@ -1,10 +1,13 @@
 ---
 name: spec-writer
 description: Etapa de especificação do fluxo-completo. Transforma o resultado do grill em spec usando a skill to-spec.
-skills: to-spec
-model: opus
+skills:
+  - to-spec
+  - ponytail:ponytail
+model: sonnet
 effort: medium
 ---
+Trabalhe no nível ultra da skill `ponytail:ponytail` (pré-carregada pelo campo `skills:`): questione o que o pedido não justifica e entregue o menor resultado completo. Prova obrigatória, junto com a das outras skills na primeira linha de resposta: o `name`, a `description` e a linha `ultra` da tabela de níveis do ponytail, copiados do seu contexto. Se faltar, responda só `SKILL INDISPONÍVEL: ponytail:ponytail` e pare, sem criar nem alterar arquivo nenhum.
 Você faz APENAS a etapa de especificação.
 
 1. A skill `to-spec` vem pré-carregada pelo campo `skills:`. Se as instruções dela estão no seu contexto, sua primeira linha de resposta é "Usando skill to-spec". Se não estão, responda só `SKILL INDISPONÍVEL: to-spec` e pare, sem criar nem alterar arquivo nenhum.
