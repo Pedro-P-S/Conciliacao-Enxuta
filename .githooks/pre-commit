@@ -1,0 +1,4 @@
+#!/bin/sh
+# Os testes rápidos (segundos). Os de ponta a ponta, a GUI e os `lento` ficam para o fim do fluxo.
+exec /c/Users/josef/Projetos/Conciliacao-Enxuta/.venv/Scripts/python -m pytest -q -m "not lento" \
+  --ignore=tests/test_ponta_a_ponta.py --ignore=tests/test_gui.py

@@ -19,7 +19,7 @@
 - `.parquet`: `_tipo_lido` passa o `decimal` a número e o `categorical`/`enum` e a coluna só com nulos a texto; um Valor ou uma Data de outro tipo (`bool`, `time`) vira ilegível, sem parar a execução.
 - `.xlsx`: `_linhas_vazias_no_topo` conta, pelo `fastexcel`, as linhas vazias antes do cabeçalho, e a Linha rejeitada soma esse número (é a linha da planilha).
 - Testes novos em `tests/test_leitura.py`: `31/01/26`, `26-01-31` e `2958466` em `test_data_ilegivel_nao_some_em_silencio`; `test_a_ultima_data_do_excel_e_31_12_9999`; `test_valor_e_data_de_tipos_do_parquet_sao_lidos_ou_viram_linha_rejeitada`; `test_a_linha_rejeitada_do_xlsx_conta_as_linhas_vazias_antes_do_cabecalho`.
-- Teste com olhos de usuário: `exemplo\caso_33ase_a.xlsx` (a `base_a.csv` com duas linhas vazias antes do cabeçalho e `31/01/26` na linha 10 da planilha) contra a `base_b.csv`, pela CLI: na aba Erros, `Base A, 10, C00008, 31/01/26, Data ilegível`.
+- Teste com olhos de usuário: `exemplo\caso_33\base_a.xlsx` (a `base_a.csv` com duas linhas vazias antes do cabeçalho e `31/01/26` na linha 10 da planilha) contra a `base_b.csv`, pela CLI: na aba Erros, `Base A, 10, C00008, 31/01/26, Data ilegível`.
 - Arquivos alterados: `conciliacao_enxuta/leitura.py`, `tests/test_leitura.py`.
 
 **Onde está agora (depois da entrega):**

@@ -18,7 +18,7 @@
 - `conciliacao_enxuta/gui_estado.py`: `_caminho_limpo` tira o espaço das pontas e as aspas dos caminhos da Base A e da Base B. Se gravar o `erros.log` falha, a Resposta traz "Algo deu errado e a conciliação não foi feita. Os detalhes não puderam ser gravados no erros.log." em vez de deixar a exceção escapar.
 - A GUI não mudou: ela já troca a situação pela mensagem e desliga o "Abrir pasta" quando a Resposta não tem caminho; o resultado anterior só ficava na tela porque a exceção do log escapava do clique.
 - `tests/test_gui.py`: caminho entre aspas, com espaço e os dois juntos (parametrizado); `erros.log` impedido (um arquivo no lugar da pasta `ConciliacaoEnxuta`).
-- Olhos de usuário: `exemploase_a.csv` e `base_b.csv` entre aspas geraram `exemplo\conciliacao_2026-09-30.xlsx`; depois, `"exemplo
+- Olhos de usuário: `exemplo\base_a.csv` e `base_b.csv` entre aspas geraram `exemplo\conciliacao_2026-09-30.xlsx`; depois, `"exemplo
 ao_existe.csv"` deu só `nao_existe.csv: o arquivo não existe.`, sem caminho.
 - pytest: 268 passed.
 

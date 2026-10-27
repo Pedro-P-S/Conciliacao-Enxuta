@@ -37,11 +37,13 @@ Guias, não leis. Na dúvida, eles decidem.
 C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q
 ```
 
+O pre-commit (`.githooks/pre-commit`, ligado com `git config core.hooksPath .githooks`) roda os testes rápidos; a suíte inteira, com os de ponta a ponta, a GUI e os `lento`, roda antes do review.
+
 O `.venv` é do projeto, com os pacotes de `requirements.txt`. O caminho é absoluto porque os worktrees (`.claude\worktrees\<nome>\`) não têm `.venv`.
 
 ## Agentes
 
-O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer`, `code-reviewer` (skill code-review) e `reviewer` (skill ponytail-review).
+O fluxo é `/fluxo-completo` (spec → tickets → implementação → review), com os agentes em `.claude/agents/`: `spec-writer`, `ticket-writer`, `implementer`, `code-reviewer` (skill code-review) e `reviewer` (skill ponytail-review). Mudanças em `.claude/` só valem numa sessão nova aberta no master: as skills vêm do checkout principal, e os agentes são carregados quando a sessão começa.
 
 ## Issue tracker
 

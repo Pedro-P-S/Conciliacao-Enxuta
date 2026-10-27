@@ -571,6 +571,7 @@ def test_valor_numerico_do_xlsx_e_do_parquet_e_arredondado_para_centavos_uma_vez
     assert ler_base(decimal)[0]["Valor"].to_list() == [212, 0, 12_345_678_901_234_567]
 
 
+@pytest.mark.lento
 def test_parquet_grande_com_valor_float_e_lido_em_poucos_segundos(tmp_path):
     caminho = tmp_path / "grande.parquet"
     n = 200_000

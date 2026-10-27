@@ -161,6 +161,7 @@ def _atributo(coluna: str, tipo: pl.DataType) -> pl.Expr:
     Aceita qualquer tipo: o que o polars não converte em texto (lista, duração, do `.parquet`) vai pelo `str` do Python.
     """
     if tipo.is_nested() or isinstance(tipo, pl.Duration):
+        # shortcut: Python linha a linha, só para lista e duração do .parquet; trocar por expressão nativa se ficar lento
         texto = pl.col(coluna).map_batches(
             lambda s: pl.Series([None if v is None else str(v) for v in s.to_list()], dtype=pl.String),
             return_dtype=pl.String,
@@ -293,6 +294,7 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     rejeitada = lidas["Motivo"].is_not_null() & ~toda_vazia
     rejeitadas = lidas.filter(rejeitada)
     # O Valor lido (a linha caiu pela Data) sai em reais; o que não pôde ser lido sai como veio
+    # shortcut: Python linha a linha, só nas Linhas rejeitadas; vetorizar se elas passarem de milhares
     em_reais = rejeitadas["Lido"].map_elements(reais, return_dtype=pl.String)
     rejeitadas = rejeitadas.with_columns(pl.coalesce(em_reais, pl.col("Valor")).alias("Valor")).drop("Lido")
     return base.filter(~rejeitada & ~toda_vazia), rejeitadas

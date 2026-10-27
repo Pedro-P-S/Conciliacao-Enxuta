@@ -22,7 +22,7 @@
 - `conciliacao_enxuta/html.py`: o quadro vem de `quadro_do_resumo`; o comentário do módulo diz o mesmo do `excel`.
 - `conciliacao_enxuta/leitura.py`: saiu `_em_reais`; o Valor lido das Linhas rejeitadas sai de `excel.reais`, aplicado só às rejeitadas (depois do filtro), não à base toda.
 - `conciliacao_enxuta/cruzamento.py`: `_soltas` é o único lugar da regra de sinal (+Valor em A, −Valor em B); a Diferença, o Histórico, a Idade e o `_casas` (que agora recebe as soltas e usa −Diferença como alvo) saem dela.
-- Teste com olhos de usuário: um script fora do repositório rodou as bases de `exemplo\` (raiz, `caso_entrada_estranha`, `caso_sem_chave`, `revisao`), com o limite padrão e com limite 3 (para o corte das Operações e dos Erros), e despejou cada célula (valor, formato, negrito), o congelamento, o filtro e o `.html`. Antes e depois deram textos idênticos; a CLI sobre `exemploase_a.csv` e `base_b.csv` deu o mesmo `.html` byte a byte.
+- Teste com olhos de usuário: um script fora do repositório rodou as bases de `exemplo\` (raiz, `caso_entrada_estranha`, `caso_sem_chave`, `revisao`), com o limite padrão e com limite 3 (para o corte das Operações e dos Erros), e despejou cada célula (valor, formato, negrito), o congelamento, o filtro e o `.html`. Antes e depois deram textos idênticos; a CLI sobre `exemplo\base_a.csv` e `base_b.csv` deu o mesmo `.html` byte a byte.
 - pytest: 212 passed.
 
 **Onde está agora (depois da entrega):**
