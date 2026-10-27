@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
-from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base
+from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base, ler_batimentos
 
 
 def test_valor_vira_centavos_exatos_mesmo_em_valores_grandes(tmp_path):
@@ -623,3 +623,69 @@ def test_a_linha_rejeitada_do_xlsx_conta_as_linhas_vazias_antes_do_cabecalho(tmp
     _, rejeitadas = ler_base(caminho)
 
     assert rejeitadas_em_tuplas(rejeitadas) == [(5, "2", "31/01/26", "10,00", "Data ilegível")]
+
+
+@pytest.mark.parametrize("cabecalho", ["Valor Juros", "Valor_Juros", "valor juros"])
+def test_valor_com_nome_e_um_batimento_chamado_pelo_que_vem_depois_de_valor(tmp_path, cabecalho):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave,Data,{cabecalho}\n1,2026-09-30,10.00\n", encoding="utf-8")
+
+    batimentos = ler_batimentos(caminho)
+
+    assert list(batimentos) == ["valor juros"]  # a mesma chave nas três grafias, para casar com a outra base
+    assert batimentos["valor juros"].nome == cabecalho[6:]
+    assert batimentos["valor juros"].coluna == cabecalho
+    assert batimentos["valor juros"].base["Valor"].to_list() == [1000]
+
+
+def test_valor_puro_sozinho_e_o_batimento_valor(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text("Chave,Data,Valor\n1,2026-09-30,10.00\n", encoding="utf-8")
+
+    batimentos = ler_batimentos(caminho)
+
+    assert list(batimentos) == ["valor"]
+    assert batimentos["valor"].nome == "Valor"
+
+
+def test_batimentos_vem_na_ordem_das_colunas_e_outra_coluna_de_valor_nao_vira_atributo(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(
+        "Chave,Valor Receita,Data,Valor Juros,Conta\n1,5.00,2026-09-30,10.00,X\n", encoding="utf-8"
+    )
+
+    batimentos = ler_batimentos(caminho)
+
+    assert list(batimentos) == ["valor receita", "valor juros"]
+    assert batimentos["valor receita"].base.columns == ["Chave", "Data", "Valor", "Conta"]
+    assert batimentos["valor receita"].base["Valor"].to_list() == [500]
+    assert batimentos["valor juros"].base.columns == ["Chave", "Data", "Valor", "Conta"]
+    assert batimentos["valor juros"].base["Valor"].to_list() == [1000]
+
+
+def test_valor_ilegivel_rejeita_a_linha_so_no_seu_batimento_e_data_ilegivel_em_todos(tmp_path):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(
+        "Chave,Data,Valor Juros,Valor Receita\n"
+        "1,2026-09-30,abc,5.00\n"
+        "2,31/01/26,10.00,6.00\n"
+        "3,2026-09-30,7.00,8.00\n",
+        encoding="utf-8",
+    )
+
+    batimentos = ler_batimentos(caminho)
+
+    juros, receita = batimentos["valor juros"], batimentos["valor receita"]
+    assert juros.base["Chave"].to_list() == ["3"]
+    assert juros.rejeitadas.select("Linha", "Motivo").rows() == [(2, "Valor ilegível"), (3, "Data ilegível")]
+    assert receita.base["Chave"].to_list() == ["1", "3"]
+    assert receita.rejeitadas.select("Linha", "Motivo").rows() == [(3, "Data ilegível")]
+
+
+@pytest.mark.parametrize("cabecalho", ["Valor Juros;valor_juros", "Valor;VALOR"])
+def test_coluna_de_valor_repetida_da_coluna_repetida(tmp_path, cabecalho):
+    caminho = tmp_path / "base.csv"
+    caminho.write_text(f"Chave;Data;{cabecalho}\n1;30/09/2026;1;2\n", encoding="utf-8")
+
+    with pytest.raises(ErroDeLeitura, match=r"^base\.csv: coluna repetida: Valor( Juros)?\.$"):
+        ler_batimentos(caminho)

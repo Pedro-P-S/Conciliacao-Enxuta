@@ -22,6 +22,7 @@ class Resposta:
 
     caminho: Path | None = None
     mensagem: str = ""
+    avisos: tuple[str, ...] = ()
 
 
 def _gravar_traceback(erro: Exception) -> Path:
@@ -51,8 +52,8 @@ def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta
     except ArgumentTypeError as erro:
         return Resposta(mensagem=str(erro))
     try:
-        xlsx, _ = conciliar_arquivos(Path(base_a), Path(base_b), centavos, Path(base_a).parent)
-        return Resposta(caminho=xlsx)
+        xlsx, _, avisos = conciliar_arquivos(Path(base_a), Path(base_b), centavos, Path(base_a).parent)
+        return Resposta(caminho=xlsx, avisos=tuple(avisos))
     except (ErroDeLeitura, SemDataBaseComum, ArquivoNaoGravado) as erro:
         return Resposta(mensagem=str(erro))
     except Exception as erro:

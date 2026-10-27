@@ -8,29 +8,46 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, SemDataBaseComum, conciliar
+from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, Resultado, SemDataBaseComum, conciliar
 from conciliacao_enxuta.excel import gravar_excel
 from conciliacao_enxuta.html import gravar_html
-from conciliacao_enxuta.leitura import MILHAR, ErroDeLeitura, ler_base
+from conciliacao_enxuta.leitura import MILHAR, ErroDeLeitura, ler_batimentos
 
 
 class ArquivoNaoGravado(Exception):
     """O `.xlsx` não pôde ser gravado (aberto no Excel, ou a pasta de saída não existe); nem ele nem o `.html` mudaram."""
 
 
-def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path) -> tuple[Path, Path]:
-    """Lê as duas bases, concilia e grava o `.xlsx` e depois o `.html` em `pasta`. Devolve os dois caminhos."""
-    (lida_a, rejeitadas_a), (lida_b, rejeitadas_b) = ler_base(base_a), ler_base(base_b)
-    resultado = conciliar(lida_a, lida_b, tolerancia, rejeitadas_a, rejeitadas_b)
+def conciliar_batimentos(base_a: Path, base_b: Path, tolerancia: int) -> tuple[list[Resultado], list[str]]:
+    """Lê as duas bases e concilia cada Batimento (coluna de valor nas duas), na ordem da Base A.
+    Devolve os Resultados e os avisos das colunas de valor que estão só numa base."""
+    lidas_a, lidas_b = ler_batimentos(base_a), ler_batimentos(base_b)
+    comuns = [chave for chave in lidas_a if chave in lidas_b]
+    if not comuns:
+        raise ErroDeLeitura("A Base A e a Base B não têm nenhuma coluna de valor em comum.")
+    avisos = [f"{lida.coluna} só na Base A: não conciliado" for chave, lida in lidas_a.items() if chave not in lidas_b]
+    avisos += [f"{lida.coluna} só na Base B: não conciliado" for chave, lida in lidas_b.items() if chave not in lidas_a]
+    resultados = [
+        conciliar(lidas_a[c].base, lidas_b[c].base, tolerancia, lidas_a[c].rejeitadas, lidas_b[c].rejeitadas)
+        for c in comuns
+    ]
+    return resultados, avisos
+
+
+def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path) -> tuple[Path, Path, list[str]]:
+    """Lê as duas bases, concilia e grava o `.xlsx` e depois o `.html` em `pasta`. Devolve os dois caminhos e os avisos."""
+    resultados, avisos = conciliar_batimentos(base_a, base_b, tolerancia)
     if not pasta.is_dir():
         raise ArquivoNaoGravado(f"{pasta}: a pasta de saída não existe.")
+    # shortcut: o `excel` e o `html` desenham só o primeiro Batimento; sair quando os tickets 40, 41 e 42 os ensinarem
+    resultado = resultados[0]
     try:
         xlsx = gravar_excel(resultado, pasta)
     except PermissionError as erro:
         raise ArquivoNaoGravado(
             f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."
         ) from erro
-    return xlsx, gravar_html(resultado, pasta)
+    return xlsx, gravar_html(resultado, pasta), avisos
 
 
 def tolerancia_em_centavos(texto: str) -> int:
@@ -67,13 +84,15 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        caminhos = conciliar_arquivos(args.base_a, args.base_b, args.tolerancia, args.saida or args.base_a.parent)
+        *caminhos, avisos = conciliar_arquivos(args.base_a, args.base_b, args.tolerancia, args.saida or args.base_a.parent)
     except (ErroDeLeitura, SemDataBaseComum, ArquivoNaoGravado) as erro:
         print(erro, file=sys.stderr)
         return 1
     except Exception as erro:
         print(f"Algo deu errado e a conciliação não foi feita: {erro}", file=sys.stderr)
         return 1
+    for aviso in avisos:
+        print(aviso, file=sys.stderr)
     for caminho in caminhos:
         print(caminho)
     return 0

@@ -11,6 +11,7 @@ import re
 import unicodedata
 from decimal import Decimal
 from pathlib import Path
+from typing import NamedTuple
 
 import fastexcel
 import polars as pl
@@ -35,11 +36,23 @@ def _comparavel(nome: str) -> str:
     return "".join(c for c in sem_acento if not unicodedata.combining(c)).casefold()
 
 
-def _renomear_colunas(df: pl.DataFrame) -> pl.DataFrame:
-    """Dá às colunas reconhecidas os nomes exatos `Chave`, `Data` e `Valor`."""
-    exatos = {_comparavel(c): c for c in COLUNAS}
-    comparaveis = {c: _comparavel(c) for c in df.columns}
-    return df.rename({c: exatos[n] for c, n in comparaveis.items() if n in exatos})
+def _normalizado(nome: str) -> str:
+    """Nome comparável, com `valor_juros` e `valor juros` iguais."""
+    return re.sub(r"^valor_(?=.)", "valor ", _comparavel(nome))
+
+
+def _e_de_valor(normalizado: str) -> bool:
+    """`Valor` ou `Valor <nome>`: uma coluna de valor, que é um Batimento."""
+    return normalizado == "valor" or normalizado.startswith("valor ")
+
+
+def _renomear_colunas(df: pl.DataFrame, valor: str) -> pl.DataFrame:
+    """Dá a `Chave` e `Data` os nomes exatos e a coluna de valor do Batimento o nome `Valor`; as outras colunas de
+    valor saem, para não virarem Atributo."""
+    exatos = {_comparavel(c): c for c in ("Chave", "Data")}
+    novos = {c: exatos[_comparavel(c)] for c in df.columns if _comparavel(c) in exatos}
+    outras = [c for c in df.columns if c != valor and _e_de_valor(_normalizado(c))]
+    return df.drop(outras).rename({**novos, valor: "Valor"})
 
 
 def _centavos(texto: pl.Expr) -> pl.Expr:
@@ -225,44 +238,8 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
 
 
-def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e `Valor`.
-
-    Devolve a base e as Linhas rejeitadas: a Data ou o Valor vazio ou ilegível rejeita a linha, que fica fora
-    da base. As rejeitadas trazem a Linha, a Chave, a Data e o Valor em texto, e o Motivo: a Chave e a Data
-    como vieram, o Valor em reais (`1.234,56`) quando foi lido, e como veio quando não.
-
-    Toda outra coluna é Atributo, em texto e com o nome que veio no arquivo (vazio vira nulo).
-
-    Data em `DD/MM/AAAA`, `AAAA-MM-DD`, data do Excel ou data nativa; Valor numérico ou no formato
-    brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
-    """
-    caminho = Path(caminho)
-    arquivo = caminho.name
-    try:
-        lido = _ler_tabela(caminho)
-    except FileNotFoundError:
-        raise ErroDeLeitura(f"{arquivo}: o arquivo não existe.") from None
-    except OSError:
-        raise ErroDeLeitura(f"{arquivo}: não deu para abrir o arquivo.") from None
-    except pl.exceptions.NoDataError:
-        raise ErroDeLeitura(f"{arquivo}: o arquivo está vazio.") from None
-    except (fastexcel.FastExcelError, pl.exceptions.ComputeError):
-        raise ErroDeLeitura(f"{arquivo}: o arquivo está corrompido.") from None
-    # O polars renomeia o cabeçalho igual de um `.csv` (`Valor;Valor` → `Valor`, `Valor_duplicated_0`);
-    # no `.xlsx`, vale o cabeçalho cru da planilha
-    extensao = caminho.suffix.lower()
-    vazias, cabecalho = _topo_do_xlsx(caminho) if extensao == ".xlsx" else (0, lido.columns)
-    nomes = [_comparavel(re.sub(r"_duplicated_\d+$", "", c)) for c in cabecalho]
-    for coluna in COLUNAS:
-        if nomes.count(_comparavel(coluna)) > 1:
-            raise ErroDeLeitura(f"{arquivo}: coluna repetida: {coluna}.")
-    df = _renomear_colunas(lido)
-    faltam = [c for c in COLUNAS if c not in df.columns]
-    if faltam:
-        encontradas = ", ".join(c.lstrip("﻿").strip() for c in lido.columns)
-        falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
-        raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
+def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """A base e as Linhas rejeitadas de um Batimento: `df` já tem `Chave`, `Data` e `Valor`."""
     df = _tipo_lido(df)
     para_ler = _valor_float_em_texto(df)
     base = para_ler.select(
@@ -298,3 +275,71 @@ def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
     em_reais = rejeitadas["Lido"].map_elements(reais, return_dtype=pl.String)
     rejeitadas = rejeitadas.with_columns(pl.coalesce(em_reais, pl.col("Valor")).alias("Valor")).drop("Lido")
     return base.filter(~rejeitada & ~toda_vazia), rejeitadas
+
+
+class Leitura(NamedTuple):
+    """Um Batimento lido de um arquivo."""
+
+    nome: str  # o que vem depois de `Valor` (`Juros`); o `Valor` puro é `Valor`
+    coluna: str  # o cabeçalho como está no arquivo (`Valor Juros`)
+    base: pl.DataFrame
+    rejeitadas: pl.DataFrame
+
+
+def ler_batimentos(caminho: str | Path) -> dict[str, Leitura]:
+    """Lê um `.csv` (separado por `;` ou `,`), `.xlsx` ou `.parquet` com as colunas `Chave`, `Data` e uma ou mais
+    colunas de valor (`Valor`, `Valor Juros`, `Valor_Juros`): cada uma é um Batimento, na ordem das colunas.
+    A chave do dicionário é o nome comparável da coluna de valor (`valor juros`), a mesma nas duas bases.
+
+    Por Batimento, devolve a base e as Linhas rejeitadas: a Data ou o Valor vazio ou ilegível rejeita a linha, que
+    fica fora da base. A Data rejeita a linha em todos os Batimentos; o Valor, só no seu. As rejeitadas trazem a
+    Linha, a Chave, a Data e o Valor em texto, e o Motivo: a Chave e a Data como vieram, o Valor em reais
+    (`1.234,56`) quando foi lido, e como veio quando não.
+
+    Toda outra coluna é Atributo, em texto e com o nome que veio no arquivo (vazio vira nulo); a coluna de valor de
+    outro Batimento não é Atributo.
+
+    Data em `DD/MM/AAAA`, `AAAA-MM-DD`, data do Excel ou data nativa; Valor numérico ou no formato
+    brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
+    """
+    caminho = Path(caminho)
+    arquivo = caminho.name
+    try:
+        lido = _ler_tabela(caminho)
+    except FileNotFoundError:
+        raise ErroDeLeitura(f"{arquivo}: o arquivo não existe.") from None
+    except OSError:
+        raise ErroDeLeitura(f"{arquivo}: não deu para abrir o arquivo.") from None
+    except pl.exceptions.NoDataError:
+        raise ErroDeLeitura(f"{arquivo}: o arquivo está vazio.") from None
+    except (fastexcel.FastExcelError, pl.exceptions.ComputeError):
+        raise ErroDeLeitura(f"{arquivo}: o arquivo está corrompido.") from None
+    # O polars renomeia o cabeçalho igual de um `.csv` (`Valor;Valor` → `Valor`, `Valor_duplicated_0`);
+    # no `.xlsx`, vale o cabeçalho cru da planilha
+    extensao = caminho.suffix.lower()
+    vazias, cabecalho = _topo_do_xlsx(caminho) if extensao == ".xlsx" else (0, lido.columns)
+    limpos = [re.sub(r"_duplicated_\d+$", "", c).lstrip("﻿").strip() for c in cabecalho]
+    nomes = [_normalizado(c) for c in limpos]
+    exibidos = {_comparavel(c): c for c in COLUNAS}
+    for nome in dict.fromkeys(nomes):
+        if nomes.count(nome) > 1 and (nome in exibidos or _e_de_valor(nome)):
+            raise ErroDeLeitura(f"{arquivo}: coluna repetida: {exibidos.get(nome) or limpos[nomes.index(nome)]}.")
+    valores = [c for c in lido.columns if _e_de_valor(_normalizado(c))]
+    faltam = [c for c in ("Chave", "Data") if _comparavel(c) not in nomes] + ([] if valores else ["Valor"])
+    if faltam:
+        encontradas = ", ".join(c.lstrip("﻿").strip() for c in lido.columns)
+        falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
+        raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
+    batimentos = {}
+    for coluna in valores:
+        nome = _normalizado(coluna)
+        limpa = coluna.lstrip("﻿").strip()
+        base, rejeitadas = _ler_um(_renomear_colunas(lido, coluna), extensao, vazias)
+        batimentos[nome] = Leitura(limpa[6:].strip() if nome != "valor" else "Valor", limpa, base, rejeitadas)
+    return batimentos
+
+
+def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """A base e as Linhas rejeitadas do primeiro Batimento; para o arquivo só com `Valor`, o único."""
+    primeiro = next(iter(ler_batimentos(caminho).values()))
+    return primeiro.base, primeiro.rejeitadas

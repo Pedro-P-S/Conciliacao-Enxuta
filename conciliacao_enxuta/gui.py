@@ -49,7 +49,7 @@ class Janela:
             self.abrir_pasta.state(["disabled"])
             return
         self.pasta_do_resultado = resposta.caminho.parent
-        self.situacao.set(f"Resultado: {resposta.caminho}")
+        self.situacao.set("\n".join([*resposta.avisos, f"Resultado: {resposta.caminho}"]))
         self.abrir_pasta.state(["!disabled"])
 
     def _abrir_pasta(self) -> None:

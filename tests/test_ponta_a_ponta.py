@@ -6,7 +6,7 @@ from datetime import date, datetime
 import openpyxl
 import pytest
 
-from conciliacao_enxuta.cli import main
+from conciliacao_enxuta.cli import conciliar_batimentos, main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
 from conciliacao_enxuta.excel import gravar_excel
 from conciliacao_enxuta.exemplo import DIFERENCAS_SEM_CHAVE, gerar_bases_exemplo
@@ -1062,3 +1062,81 @@ def test_erro_inesperado_na_cli_sai_com_mensagem_simples_sem_traceback(tmp_path,
     assert codigo == 1
     assert saida.out == ""
     assert saida.err.strip() == "Algo deu errado e a conciliação não foi feita: falha simulada"
+
+
+BASE_A_COM_DOIS = "Chave,Data,Valor Juros,Valor Receita\n1,2026-09-30,10.00,100.00\n2,2026-09-30,5.00,50.00\n"
+BASE_B_COM_DOIS = "Chave,Data,Valor_Receita,valor juros\n1,2026-09-30,200.00,12.00\n2,2026-09-30,50.00,5.00\n"
+
+
+def test_dois_batimentos_conciliam_cada_um_com_os_seus_totais_na_ordem_da_base_a(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text(BASE_A_COM_DOIS, encoding="utf-8")
+    base_b.write_text(BASE_B_COM_DOIS, encoding="utf-8")
+
+    resultados, avisos = conciliar_batimentos(base_a, base_b, TOLERANCIA_PADRAO)
+
+    assert avisos == []
+    # Totais conferidos à mão, em centavos: Juros 15,00 × 17,00 e Receita 150,00 × 250,00
+    assert [(r.total_a, r.total_b, r.diferenca_total, r.chaves_com_diferenca) for r in resultados] == [
+        (1500, 1700, -200, 1),
+        (15000, 25000, -10000, 1),
+    ]
+
+
+def conciliar_dois(tmp_path, capsys, conteudo_a: str, conteudo_b: str) -> tuple[int, str, str]:
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text(conteudo_a, encoding="utf-8")
+    base_b.write_text(conteudo_b, encoding="utf-8")
+    codigo = main(["conciliar", str(base_a), str(base_b)])
+    saida = capsys.readouterr()
+    return codigo, saida.out, saida.err
+
+
+def test_coluna_de_valor_so_numa_base_avisa_e_as_outras_sao_conciliadas(tmp_path, capsys):
+    codigo, saida, erro = conciliar_dois(
+        tmp_path, capsys, BASE_A_COM_DOIS, "Chave,Data,Valor Juros,Valor Taxa\n1,2026-09-30,12.00,1.00\n"
+    )
+
+    assert codigo == 0
+    assert erro.splitlines() == [
+        "Valor Receita só na Base A: não conciliado",
+        "Valor Taxa só na Base B: não conciliado",
+    ]
+    assert ler_resumo(saida.splitlines()[0])["Total A"].value == 15.00  # o Batimento Juros
+
+
+def test_sem_batimento_nas_duas_bases_a_mensagem_e_simples_e_nada_e_gerado(tmp_path, capsys):
+    codigo, saida, erro = conciliar_dois(
+        tmp_path, capsys, "Chave,Data,Valor Juros\n1,2026-09-30,1.00\n", "Chave,Data,Valor Receita\n1,2026-09-30,1.00\n"
+    )
+
+    assert (codigo, saida) == (1, "")
+    assert erro.strip() == "A Base A e a Base B não têm nenhuma coluna de valor em comum."
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
+def test_coluna_de_valor_repetida_continua_dando_coluna_repetida(tmp_path, capsys):
+    mensagem = conciliar_com_erro(tmp_path, capsys, "Chave;Data;Valor Juros;valor_juros\n1;30/09/2026;1;2\n")
+
+    assert mensagem == "base_a.csv: coluna repetida: Valor Juros."
+
+
+def test_janela_mostra_o_aviso_da_coluna_de_valor_so_numa_base_e_concilia(tmp_path):
+    (tmp_path / "a.csv").write_text(BASE_A_COM_DOIS, encoding="utf-8")
+    (tmp_path / "b.csv").write_text("Chave,Data,Valor Juros\n1,2026-09-30,12.00\n", encoding="utf-8")
+
+    resposta = conciliar_pela_janela(str(tmp_path / "a.csv"), str(tmp_path / "b.csv"), "1,00")
+
+    assert resposta.mensagem == ""
+    assert resposta.caminho.exists()
+    assert resposta.avisos == ("Valor Receita só na Base A: não conciliado",)
+
+
+def test_janela_sem_batimento_nas_duas_bases_da_mensagem_simples(tmp_path):
+    (tmp_path / "a.csv").write_text("Chave,Data,Valor Juros\n1,2026-09-30,1.00\n", encoding="utf-8")
+    (tmp_path / "b.csv").write_text("Chave,Data,Valor Receita\n1,2026-09-30,1.00\n", encoding="utf-8")
+
+    resposta = conciliar_pela_janela(str(tmp_path / "a.csv"), str(tmp_path / "b.csv"), "1,00")
+
+    assert resposta.caminho is None
+    assert resposta.mensagem == "A Base A e a Base B não têm nenhuma coluna de valor em comum."
