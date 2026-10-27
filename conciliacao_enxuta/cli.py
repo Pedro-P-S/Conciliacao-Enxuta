@@ -43,15 +43,13 @@ def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path)
     resultados, avisos = conciliar_batimentos(base_a, base_b, tolerancia)
     if not pasta.is_dir():
         raise ArquivoNaoGravado(f"{pasta}: a pasta de saída não existe.")
-    # shortcut: o Resumo do `.xlsx` e o `.html` desenham só o primeiro Batimento; sair quando os tickets 41 e 42 os ensinarem
-    resultado = resultados[0]
     try:
         xlsx = gravar_excel(resultados, pasta)
     except PermissionError as erro:
         raise ArquivoNaoGravado(
             f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."
         ) from erro
-    return xlsx, gravar_html(resultado, pasta), avisos
+    return xlsx, gravar_html(resultados, pasta), avisos
 
 
 def tolerancia_em_centavos(texto: str) -> int:
