@@ -13,24 +13,36 @@ from conciliacao_enxuta.leitura import ler_base
 
 
 class _Leitor(HTMLParser):
-    """Junta os textos visíveis (sem os do `<style>`), as tags e os atributos de cada tag."""
+    """Junta os textos visíveis (sem os do `<style>`), as tags e os atributos de cada tag.
+
+    As dicas (`<title>` dentro do SVG) e a tabela dos dados dos gráficos (dentro de `<details>`) vão em listas
+    à parte, para não misturar com os textos da página.
+    """
 
     def __init__(self):
         super().__init__()
         self.textos: list[str] = []
+        self.dicas: list[str] = []
+        self.dados: list[str] = []
         self.tags: list[tuple[str, dict]] = []
-        self._no_style = False
+        self._aberto: list[str] = []
 
     def handle_starttag(self, tag, attrs):
         self.tags.append((tag, dict(attrs)))
-        self._no_style = tag == "style"
+        self._aberto.append(tag)
 
     def handle_endtag(self, tag):
-        if tag == "style":
-            self._no_style = False
+        while self._aberto and self._aberto.pop() != tag:
+            pass
 
     def handle_data(self, data):
-        if data.strip() and not self._no_style:
+        if not data.strip() or "style" in self._aberto:
+            return
+        if "details" in self._aberto:
+            self.dados.append(data.strip())
+        elif "svg" in self._aberto and self._aberto[-1] == "title":
+            self.dicas.append(data.strip())
+        else:
             self.textos.append(data.strip())
 
 
@@ -280,3 +292,61 @@ def test_nome_de_batimento_com_menor_comercial_e_aspas_sai_como_texto(tmp_path, 
     assert any(t.startswith("<b> & ") for t in leitor.textos)
     assert "b" not in [tag for tag, _ in leitor.tags]
     assert "&lt;b&gt; &amp; &quot;" in Path(html).read_text(encoding="utf-8")
+
+
+def test_html_tem_um_tema_so_com_as_cores_em_tokens_e_os_temas_claro_e_escuro_declarados(tmp_path, capsys):
+    _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
+
+    texto = Path(html).read_text(encoding="utf-8")
+    estilo = texto[texto.index("<style>") : texto.index("</style>")]
+    assert texto.count("<style>") == 1
+    assert "--serie-1:#2a78d6" in estilo.replace(" ", "")
+    escuro = estilo[estilo.index("prefers-color-scheme: dark") :]
+    assert ':root:not([data-theme="light"])' in escuro and ':root[data-theme="dark"]' in escuro
+    assert escuro.replace(" ", "").count("--serie-1:#3987e5") == 2
+    assert "background:var(--superficie)" in estilo.replace(" ", "")
+    # Fora do `<style>` nenhuma cor escrita: tudo vem dos tokens
+    assert "#" not in texto[texto.index("</style>") :].replace('href="#', "").replace('"#', "").replace("&#", "")
+
+
+def test_html_traz_a_tabela_dos_dados_dos_graficos_e_a_dica_de_cada_barra_e_de_cada_ponto(tmp_path, capsys):
+    _, html = conciliar_csv(
+        tmp_path, capsys,
+        "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n",
+        "Chave,Data,Valor\n1,2026-09-29,12.50\n1,2026-09-30,15.00\n",
+    )
+
+    leitor = ler_html(html)
+    assert leitor.dados.count("Diferença absoluta") == 2  # um cabeçalho por tabela
+    assert depois(leitor.dados, "Data-base", 5)[1:] == ["29/09/2026", "2,50", "30/09/2026", "5,00"]
+    assert ["29/09/2026: 2,50", "30/09/2026: 5,00"] == [d for d in leitor.dicas if d[:2] in ("29", "30")]
+    assert len(leitor.dicas) == 5 + 2  # 5 faixas e 2 Data-bases
+
+
+def test_as_marcas_seguem_as_regras_barra_arredondada_so_na_ponta_linha_de_2px_ponto_com_anel_e_sem_borda(
+    tmp_path, capsys
+):
+    _, html = conciliar_csv(
+        tmp_path, capsys,
+        "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n",
+        "Chave,Data,Valor\n1,2026-09-29,12.50\n1,2026-09-30,15.00\n",
+    )
+
+    leitor = ler_html(html)
+    marcas = {classe: [a for t, a in leitor.tags if a.get("class") == classe] for classe in ("barra", "linha", "ponto")}
+    assert len(marcas["barra"]) == 1  # só a faixa com Diferença tem barra visível
+    assert marcas["linha"][0]["stroke-width"] == "2" and marcas["linha"][0]["stroke-linejoin"] == "round"
+    assert len(marcas["ponto"]) == 2 and all(float(a["r"]) >= 4 for a in marcas["ponto"])
+    # A barra é um caminho com 4px arredondados na ponta, e 24px de espessura no máximo
+    assert " a4,4 " in marcas["barra"][0]["d"] and 0 < float(marcas["barra"][0]["data-h"]) <= 24
+    assert all("stroke" not in a for a in marcas["barra"])
+
+
+def test_o_svg_escala_com_a_largura_da_tela_e_cabe_em_375px(tmp_path, capsys):
+    _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
+
+    svgs = [a for tag, a in ler_html(html).tags if tag == "svg"]
+    assert len(svgs) == 2
+    for a in svgs:
+        largura = float(a["viewbox"].split()[2])
+        assert a["width"] == "100%" and largura <= 375 - 2 * 16
