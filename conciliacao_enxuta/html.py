@@ -85,11 +85,12 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
     avisa do corte das operações.
     """
     caminho = Path(pasta) / f"conciliacao_{resultados[0].data_base.isoformat()}.html"
-    corpo = _resumo(resultados[0], limite)
+    total = sum(r.operacoes.height for r in resultados)  # o corte é da aba inteira, como no Excel
+    corpo = _resumo(resultados[0], limite, total)
     if len(resultados) > 1:
         opcoes = "".join(f"<option>{_do_arquivo(r.batimento)}</option>" for r in resultados)
         secoes = "\n".join(
-            f"<section{' hidden' if i else ''}>\n{_resumo(r, limite)}\n</section>" for i, r in enumerate(resultados)
+            f"<section{' hidden' if i else ''}>\n{_resumo(r, limite, total)}\n</section>" for i, r in enumerate(resultados)
         )
         corpo = f'<select id="batimento">{opcoes}</select>\n{secoes}\n<script>{FILTRO}</script>'
     titulo = f"Conciliação {resultados[0].data_base:%d/%m/%Y}"
@@ -104,7 +105,7 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
     return caminho
 
 
-def _resumo(resultado: Resultado, limite: int) -> str:
+def _resumo(resultado: Resultado, limite: int, total_de_operacoes: int) -> str:
     """O Resumo de um Batimento: o quadro, os avisos, os Atributos Problemáticos e os dois gráficos."""
     partes = ['<div class="cartoes">']
     partes += [
@@ -122,7 +123,7 @@ def _resumo(resultado: Resultado, limite: int) -> str:
                 f'<td class="n">{reais(sem_chave.soma)}</td></tr>'
             )
         partes.append("</table>")
-    partes += [f"<p>{escape(aviso)}</p>" for aviso in avisos(resultado, limite)]
+    partes += [f"<p>{escape(aviso)}</p>" for aviso in avisos(resultado, limite, total_de_operacoes)]
 
     # Os Atributos Problemáticos; sem Atributo acima do peso, a tabela não aparece
     if resultado.atributos_problematicos.height:
@@ -194,7 +195,7 @@ def _grafico_de_barras(resultado: Resultado) -> str:
 
 def _grafico_de_linha(resultado: Resultado) -> str:
     """A Diferença absoluta por Data-base, com a primeira e a última data no eixo e o maior valor no topo."""
-    largura, esquerda, topo, altura, direita = 340, 92, 8, 180, 12
+    largura, esquerda, topo, altura, direita = 340, 92, 24, 180, 12  # o topo deixa lugar ao valor do fim da linha
     historico = resultado.historico
     maior = max((absoluta for _, absoluta in historico), default=0)
     passo = (largura - esquerda - direita) / max(len(historico) - 1, 1)
@@ -222,6 +223,9 @@ def _grafico_de_linha(resultado: Resultado) -> str:
             f'<g><title>{dica}</title><circle class="alvo" cx="{x:.1f}" cy="{y:.1f}" r="12"/>'
             f'<circle class="ponto" cx="{x:.1f}" cy="{y:.1f}" r="4"/></g>'
         )
+    if historico:  # o valor no fim da linha, acima do último ponto e alinhado à direita para não cortar
+        x, y = pontos[-1]
+        svg.append(f'<text class="v" x="{min(x, fim):.1f}" y="{y - 10:.1f}" text-anchor="end">{reais(historico[-1][1])}</text>')
     if historico:  # uma Data-base só: a data uma vez
         svg.append(f'<text x="{esquerda}" y="{base + 20}">{historico[0][0]:%d/%m/%Y}</text>')
     if len(historico) > 1:

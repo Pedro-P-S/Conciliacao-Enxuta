@@ -1,5 +1,6 @@
 """Seam 2: arquivos → CLI → `.html` com o Resumo, lido com o `html.parser` da biblioteca padrão."""
 
+from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -133,6 +134,19 @@ def test_acima_do_limite_o_html_traz_o_aviso_de_corte_das_operacoes(tmp_path):
     assert "Nem todas as operações com diferença couberam: mostrando 2 de 3, as maiores." in textos
 
 
+def test_com_varios_batimentos_o_aviso_de_corte_do_html_usa_o_total_de_todos_como_o_excel(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    base_a.write_text("Chave;Data;Valor|1;30/09/2026;10,00|2;30/09/2026;20,00|".replace("|", chr(10)), encoding="utf-8")
+    base_b.write_text("Chave;Data;Valor|1;30/09/2026;0|2;30/09/2026;0|".replace("|", chr(10)), encoding="utf-8")
+    (lida_a, rej_a), (lida_b, rej_b) = ler_base(base_a), ler_base(base_b)
+    resultados = [replace(conciliar(lida_a, lida_b, TOLERANCIA_PADRAO, rej_a, rej_b), batimento=n) for n in ("X", "Y")]
+
+    textos = ler_html(gravar_html(resultados, tmp_path, limite=3)).textos
+
+    # Cada Batimento tem 2 operações (abaixo do limite 3), mas a aba do Excel junta as 4
+    assert textos.count("Nem todas as operações com diferença couberam: mostrando 3 de 4, as maiores.") == 2
+
+
 def test_html_traz_os_atributos_problematicos_do_gabarito_depois_dos_avisos(tmp_path, capsys):
     gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
 
@@ -210,7 +224,21 @@ def test_sem_diferenca_o_eixo_do_grafico_mostra_0(tmp_path, capsys):
     linhas = "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n"
     _, html = conciliar_csv(tmp_path, capsys, linhas, linhas)
 
-    assert textos_do_grafico_de_linha(ler_html(html).textos) == ["0,00", "29/09/2026", "30/09/2026"]
+    assert textos_do_grafico_de_linha(ler_html(html).textos) == ["0,00", "0,00", "29/09/2026", "30/09/2026"]  # eixo e valor no fim da linha
+
+
+def test_o_grafico_de_linha_traz_o_valor_no_fim_da_linha_so_no_ultimo_ponto(tmp_path, capsys):
+    cab = "Chave,Data,Valor" + chr(10)
+    _, html = conciliar_csv(
+        tmp_path,
+        capsys,
+        cab + "1,2026-09-29,10.00" + chr(10) + "1,2026-09-30,10.00",
+        cab + "1,2026-09-29,7.50" + chr(10) + "1,2026-09-30,5.00",
+    )
+
+    textos = textos_do_grafico_de_linha(ler_html(html).textos)
+
+    assert textos == ["5,00", "0,00", "5,00", "29/09/2026", "30/09/2026"]  # o 2,50 do primeiro ponto não é rotulado
 
 
 def test_com_uma_data_base_so_o_grafico_de_linha_traz_o_ponto_e_a_data_uma_vez(tmp_path, capsys):
@@ -219,7 +247,7 @@ def test_com_uma_data_base_so_o_grafico_de_linha_traz_o_ponto_e_a_data_uma_vez(t
     )
 
     leitor = ler_html(html)
-    assert textos_do_grafico_de_linha(leitor.textos) == ["5,00", "0,00", "30/09/2026"]
+    assert textos_do_grafico_de_linha(leitor.textos) == ["5,00", "0,00", "5,00", "30/09/2026"]
     assert "circle" in [tag for tag, _ in leitor.tags]
 
 
