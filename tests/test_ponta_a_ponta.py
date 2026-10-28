@@ -8,7 +8,7 @@ import pytest
 
 from conciliacao_enxuta.cli import conciliar_batimentos, main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
-from conciliacao_enxuta.excel import gravar_excel
+from conciliacao_enxuta.excel import gravar_excel, rotulo_da_faixa
 from conciliacao_enxuta.exemplo import DIFERENCAS_SEM_CHAVE, gerar_bases_exemplo
 from conciliacao_enxuta.gui_estado import conciliar_pela_janela
 from conciliacao_enxuta.leitura import ler_base
@@ -66,7 +66,8 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
     wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
     assert wb["_grafico"].sheet_state == "hidden"
     assert abas_visiveis(wb) == ABAS
-    linhas = list(wb["_grafico"].iter_rows(max_col=2, values_only=True))
+    # Com vários Batimentos a `_grafico` desce mais, com os blocos nas outras colunas
+    linhas = [l for l in wb["_grafico"].iter_rows(max_col=2, values_only=True) if l != (None, None)]
     assert linhas[0] == ("Data-base", "Diferença absoluta")
     assert linhas[1:] == [
         (datetime.combine(data, datetime.min.time()), absoluta / 100) for data, absoluta in gabarito.historico
@@ -593,10 +594,11 @@ def test_resumo_nao_tem_tabela_de_idade_e_os_avisos_vem_logo_abaixo_do_quadro(tm
     textos = [c.value for linha in ws.iter_rows() for c in linha if isinstance(c.value, str)]
     assert "Idade da Diferença" not in textos
     assert not any(texto.startswith(faixa) for texto in textos for faixa in FAIXAS)
-    # Quadro nas linhas 1 a 7, uma em branco, e os avisos
-    assert ws["A7"].value == "Chaves com Diferença"
-    assert ws["A8"].value is None
-    assert ws["A9"].value == AVISO_SEM_CHAVE
+    # O quadro termina em Chaves com Diferença, uma linha em branco e os avisos
+    coluna_a = [c.value for c in ws["A"]]
+    fim_do_quadro = coluna_a.index("Chaves com Diferença")
+    assert coluna_a[fim_do_quadro + 1] is None
+    assert coluna_a[fim_do_quadro + 2] == AVISO_SEM_CHAVE
 
 
 @pytest.mark.parametrize("formato", ["csv", "xlsx", "parquet"])
@@ -1199,7 +1201,7 @@ QUATRO_ABAS = ["Por Tipo do Erro", "Por Atributo", "Operações com Diferença",
 def gravar_dois(tmp_path, capsys):
     codigo, saida, _ = conciliar_dois(tmp_path, capsys, LAYOUT_A, LAYOUT_B)
     assert codigo == 0
-    return openpyxl.load_workbook(saida.splitlines()[0])
+    return openpyxl.load_workbook(saida.splitlines()[0], formulas=True)
 
 
 def test_um_xlsx_so_com_a_coluna_batimento_com_filtro_nas_quatro_abas_e_as_linhas_por_batimento(tmp_path, capsys):
@@ -1267,3 +1269,79 @@ def test_com_um_batimento_so_as_abas_trazem_o_nome_dele_na_coluna_batimento(tmp_
     assert [c.value for c in wb["Operações com Diferença"][2]][:2] == ["Valor", "1"]
     assert [c.value for c in wb["Por Tipo do Erro"][2]][:2] == ["Valor", "Sem padrão"]
     assert [c.value for c in wb["Erros"][2]][:2] == ["Todos", "Base A"]
+
+
+def bloco_do_grafico(wb, batimento: str) -> dict[str, list]:
+    """As linhas da `_grafico` do Batimento, por título de coluna, achadas pelo cabeçalho da linha 1."""
+    ws = wb["_grafico"]
+    colunas = {c.value: c.column for c in ws[1] if c.value}
+    linhas = [r for r in ws.iter_rows(min_row=2) if r[colunas["Batimento"] - 1].value == batimento]
+    return {titulo: [linha[coluna - 1].value for linha in linhas] for titulo, coluna in colunas.items()}
+
+
+def test_resumo_com_varios_batimentos_tem_no_topo_a_lista_suspensa_na_ordem_da_base_a_abrindo_no_primeiro(
+    tmp_path, capsys
+):
+    wb = gravar_dois(tmp_path, capsys)
+
+    resumo = wb["Resumo"]
+    assert resumo["A1"].value == "Batimento"
+    assert resumo["B1"].value == "Juros"
+    [validacao] = resumo.data_validations.dataValidation
+    assert validacao.type == "list" and str(validacao.sqref) == "B1"
+    intervalo = validacao.formula1.removeprefix("'_grafico'!").replace("$", "")
+    assert [c[0].value for c in wb["_grafico"][intervalo]] == ["Juros", "Receita"]
+
+
+def test_resumo_com_varios_batimentos_busca_tudo_na_grafico_por_formula_e_os_graficos_leem_o_trecho_escolhido(
+    tmp_path, capsys
+):
+    wb = gravar_dois(tmp_path, capsys)
+
+    resumo, dados = wb["Resumo"], wb["_grafico"]
+    quadro = [resumo.cell(linha, 2).value for linha in range(3, 10)]
+    assert all(isinstance(v, str) and v.startswith("=") and "_grafico" in v for v in quadro)
+    # Os dois gráficos seguem lendo A:B e D:E da `_grafico`, que agora são fórmulas
+    assert len(resumo._charts) == 2
+    assert dados["B2"].value.startswith("=") and dados["E2"].value.startswith("=")
+    assert dados["D2"].value.startswith("=") and dados["A2"].value.startswith("=")
+    # Os números de cada Batimento ficam em blocos fixos, um depois do outro
+    assert bloco_do_grafico(wb, "Juros")["Quadro"][:7] != bloco_do_grafico(wb, "Receita")["Quadro"][:7]
+
+
+def test_grafico_traz_o_quadro_a_idade_e_o_historico_de_cada_batimento_como_o_resultado_dele(tmp_path, capsys):
+    gabarito = gerar_bases_exemplo(tmp_path, "csv")
+    main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0], formulas=True)
+
+    resultados, _ = conciliar_batimentos(gabarito.base_a, gabarito.base_b, TOLERANCIA_PADRAO)
+    assert [r.batimento for r in resultados] == ["Valor", "Juros"]
+    for r in resultados:
+        bloco = bloco_do_grafico(wb, r.batimento)
+        assert bloco["Quadro"][0].date() == r.data_base
+        assert bloco["Quadro"][1:7] == [
+            r.tolerancia / 100, r.total_a / 100, r.total_b / 100, r.diferenca_total / 100,
+            r.diferenca_absoluta / 100, r.chaves_com_diferenca,
+        ]
+        assert list(zip(bloco["Idade: faixa"], bloco["Idade: Diferença absoluta"]))[:5] == [
+            (rotulo_da_faixa(faixa, chaves, linhas), absoluta / 100) for faixa, chaves, linhas, absoluta in r.por_idade
+        ]
+        historico = list(zip(bloco["Histórico: Data-base"], bloco["Histórico: Diferença absoluta"]))
+        assert [(d.date(), v) for d, v in historico[: len(r.historico)]] == [(d, v / 100) for d, v in r.historico]
+        problematicos = bloco["Atributo: Atributo"][: r.atributos_problematicos.height]
+        assert problematicos == r.atributos_problematicos["Atributo"].to_list()
+    # Os Diferença do exemplo mudam de um Batimento para outro
+    assert resultados[0].diferenca_absoluta != resultados[1].diferenca_absoluta
+
+
+def test_escolhendo_cada_batimento_o_resumo_mostra_o_quadro_e_os_graficos_dele(tmp_path, capsys, escolher):
+    # Juros: Diferença absoluta 10,00 na Chave 1; Receita: 50,00 na Chave 2 (ver LAYOUT_A e LAYOUT_B)
+    for posicao, nome, absoluta, chave in ((1, "Juros", 10.0, "1"), (2, "Receita", 50.0, "2")):
+        wb = gravar_dois(tmp_path, capsys)
+        escolher(wb, posicao)
+        resumo, dados = wb["Resumo"], wb["_grafico"]
+        assert resumo["B1"].value == nome
+        quadro = {linha[0].value: linha[1].value for linha in resumo.iter_rows(min_row=3, max_row=9, max_col=2)}
+        assert quadro["Diferença absoluta"] == absoluta and quadro["Chaves com Diferença"] == 1
+        assert dados["B2"].value == absoluta  # a série da linha: a Data-base única
+        assert sum(v for v in (c[0].value for c in dados["E2:E6"])) == absoluta  # as barras somam a Diferença absoluta

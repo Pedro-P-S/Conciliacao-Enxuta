@@ -9,6 +9,7 @@ import polars as pl
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Font
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
 from conciliacao_enxuta.cruzamento import Resultado
@@ -113,13 +114,25 @@ def gravar_excel(resultados: list[Resultado], pasta: str | Path, limite: int = L
     `resultados` são os Batimentos, na ordem da Base A. As quatro abas de tabelas trazem a coluna Batimento na
     frente; cada uma mostra no máximo `limite` linhas.
     """
-    # shortcut: o Resumo e os gráficos desenham só o primeiro Batimento, até o ticket 41
-    resultado = resultados[0]
-    caminho = Path(pasta) / f"conciliacao_{resultado.data_base.isoformat()}.xlsx"
+    caminho = Path(pasta) / f"conciliacao_{resultados[0].data_base.isoformat()}.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Resumo"
+    (_resumo_com_lista if len(resultados) > 1 else _resumo_de_um)(ws, resultados, limite)
 
+    _aba_por_tipo(wb, resultados)
+    _aba_por_atributo(wb, resultados)
+    _aba_operacoes(wb, resultados, limite)
+    _aba_erros(wb, resultados, limite)
+    _graficos(wb, ws, resultados, limite)
+
+    wb.save(caminho)
+    return caminho
+
+
+def _resumo_de_um(ws, resultados: list[Resultado], limite: int) -> None:
+    """O Resumo de um Batimento só: valores gravados direto, sem lista."""
+    resultado = resultados[0]
     quadro = quadro_do_resumo(resultado)
     for linha, (rotulo, valor, formato, _) in enumerate(quadro, start=1):
         ws.cell(linha, 1, rotulo).font = Font(bold=True)
@@ -153,14 +166,137 @@ def gravar_excel(resultados: list[Resultado], pasta: str | Path, limite: int = L
     ws.column_dimensions["C"].width = 20
     ws.column_dimensions["D"].width = 22
 
-    _aba_por_tipo(wb, resultados)
-    _aba_por_atributo(wb, resultados)
-    _aba_operacoes(wb, resultados, limite)
-    _aba_erros(wb, resultados, limite)
-    _graficos(wb, ws, resultado)
 
-    wb.save(caminho)
-    return caminho
+# Com vários Batimentos, a `_grafico` guarda um bloco de ALTURA linhas por Batimento nas colunas I a U, na ordem da
+# Base A; G2 é a posição do Batimento escolhido no Resumo e as fórmulas leem o bloco dele com INDEX.
+COLUNAS_DO_BLOCO = (
+    "Batimento", "Histórico: Data-base", "Histórico: Diferença absoluta", "Idade: faixa", "Idade: Diferença absoluta",
+    "Quadro", "Sem Chave: Linhas", "Sem Chave: Soma", "Textos", "Atributo: Atributo", "Atributo: Valor",
+    "Atributo: Diferença absoluta", "Atributo: Diferença acima do peso",
+)
+# Em Textos: 1 aviso das Linhas rejeitadas, 2 a 4 títulos do quadro sem Chave, 5 e 6 Base A e Base B, 7 título
+# dos Atributos Problemáticos
+LINHAS_DO_QUADRO = 7
+
+
+def _altura_do_bloco(resultados: list[Resultado]) -> int:
+    return max(
+        LINHAS_DO_QUADRO,
+        max(len(r.historico) for r in resultados),
+        max(len(r.por_idade) for r in resultados),
+        max(r.atributos_problematicos.height for r in resultados),
+    )
+
+
+def _busca(coluna: str, k: int, altura: int, fim: int) -> str:
+    """A `k`-ésima linha da `coluna` do bloco do Batimento escolhido, como fórmula."""
+    return f"INDEX('_grafico'!${coluna}$2:${coluna}${fim},('_grafico'!$G$2-1)*{altura}+{k})"
+
+
+def _blocos(dados, resultados: list[Resultado], limite: int) -> tuple[int, int]:
+    """Grava os blocos e as fórmulas de A:B e D:E; devolve a última linha da série da linha e a das barras."""
+    altura = _altura_do_bloco(resultados)
+    fim = 1 + altura * len(resultados)
+    total_de_operacoes = sum(r.operacoes.height for r in resultados)
+    for coluna, titulo in enumerate(COLUNAS_DO_BLOCO, start=9):
+        dados.cell(1, coluna, titulo)
+    dados.cell(1, 7, "Posição")
+    dados["G2"] = f"=MATCH(Resumo!$B$1,$H$2:$H${1 + len(resultados)},0)"
+    for n, r in enumerate(resultados):
+        _do_arquivo(dados, 2 + n, 8, r.batimento)
+        primeira = 2 + n * altura
+        for linha in range(primeira, primeira + altura):
+            _do_arquivo(dados, linha, 9, r.batimento)
+
+        def gravar(coluna: int, k: int, valor, formato: str | None = None) -> None:
+            celula = _do_arquivo(dados, primeira + k - 1, coluna, valor)
+            if formato:
+                celula.number_format = formato
+
+        for k, (data, absoluta) in enumerate(r.historico, start=1):
+            gravar(10, k, data, FORMATO_DATA)
+            gravar(11, k, absoluta / 100, FORMATO_REAIS)
+        for k, (faixa, chaves, linhas, absoluta) in enumerate(r.por_idade, start=1):
+            gravar(12, k, rotulo_da_faixa(faixa, chaves, linhas))
+            gravar(13, k, absoluta / 100, FORMATO_REAIS)
+        for k, (_, valor, formato, _) in enumerate(quadro_do_resumo(r), start=1):
+            gravar(14, k, valor, formato)
+        if r.sem_chave_a.linhas or r.sem_chave_b.linhas:
+            for k, titulo in enumerate(TITULOS_SEM_CHAVE + ("Base A", "Base B"), start=2):
+                gravar(17, k, titulo)
+            for k, sem_chave in enumerate((r.sem_chave_a, r.sem_chave_b), start=1):
+                gravar(15, k, sem_chave.linhas, FORMATO_INTEIRO)
+                gravar(16, k, sem_chave.soma / 100, FORMATO_REAIS)
+        if r.rejeitadas.height:
+            gravar(17, 1, avisos(r, limite, total_de_operacoes)[0])
+        if r.atributos_problematicos.height:
+            gravar(17, 7, TITULO_PROBLEMATICOS)
+        for k, (atributo, valor, absoluta, peso) in enumerate(r.atributos_problematicos.iter_rows(), start=1):
+            gravar(18, k, atributo)
+            gravar(19, k, valor)
+            gravar(20, k, absoluta / 100, FORMATO_REAIS)
+            gravar(21, k, peso, FORMATO_PERCENTUAL)
+
+    # As séries dos gráficos: o trecho do Batimento escolhido, com NA() onde o bloco não tem linha
+    dados.cell(1, 1, "Data-base")
+    dados.cell(1, 2, "Diferença absoluta")
+    dados.cell(1, 4, "Idade da Diferença")
+    dados.cell(1, 5, "Diferença absoluta")
+    for k in range(1, altura + 1):
+        data, absoluta = _busca("J", k, altura, fim), _busca("K", k, altura, fim)
+        dados.cell(1 + k, 1, f'=IF({data}="","",{data})').number_format = FORMATO_DATA
+        dados.cell(1 + k, 2, f'=IF({absoluta}="",NA(),{absoluta})').number_format = FORMATO_REAIS
+    for k in range(1, len(resultados[0].por_idade) + 1):
+        dados.cell(1 + k, 4, "=" + _busca("L", k, altura, fim))
+        dados.cell(1 + k, 5, "=" + _busca("M", k, altura, fim)).number_format = FORMATO_REAIS
+    return 1 + altura, 1 + len(resultados[0].por_idade)
+
+
+def _resumo_com_lista(ws, resultados: list[Resultado], limite: int) -> None:
+    """O Resumo de vários Batimentos: a lista suspensa na linha 1 e, abaixo, só fórmulas que buscam o Batimento
+    escolhido na `_grafico`. As linhas dos avisos e dos Atributos Problemáticos ficam sempre reservadas e aparecem
+    em branco quando o Batimento escolhido não os tem."""
+    ws.cell(1, 1, "Batimento").font = Font(bold=True)
+    _do_arquivo(ws, 1, 2, resultados[0].batimento)
+    validacao = DataValidation(type="list", formula1=f"'_grafico'!$H$2:$H${1 + len(resultados)}", allow_blank=False)
+    ws.add_data_validation(validacao)
+    validacao.add("B1")
+
+    altura = _altura_do_bloco(resultados)
+    fim = 1 + altura * len(resultados)
+
+    def busca(coluna: str, k: int) -> str:
+        return _busca(coluna, k, altura, fim)
+
+    for k, (rotulo, _, formato, _) in enumerate(quadro_do_resumo(resultados[0]), start=1):
+        ws.cell(2 + k, 1, rotulo).font = Font(bold=True)
+        ws.cell(2 + k, 2, "=" + busca("N", k)).number_format = formato
+
+    # Linhas sem Chave (11 a 13), aviso das rejeitadas (15) e corte (16)
+    for coluna, k in enumerate((2, 3, 4), start=1):
+        ws.cell(11, coluna, f'={busca("Q", k)}&""').font = Font(bold=True)
+    for linha, (k_base, k_valor) in enumerate(((5, 1), (6, 2)), start=12):
+        ws.cell(linha, 1, f'={busca("Q", k_base)}&""')
+        ws.cell(linha, 2, f'=IF(A{linha}="","",{busca("O", k_valor)})').number_format = FORMATO_INTEIRO
+        ws.cell(linha, 3, f'=IF(A{linha}="","",{busca("P", k_valor)})').number_format = FORMATO_REAIS
+    ws.cell(15, 1, f'={busca("Q", 1)}&""')
+    total = sum(r.operacoes.height for r in resultados)
+    if total > limite:
+        ws.cell(16, 1, CORTE_DAS_OPERACOES.format(limite=milhar(limite), total=milhar(total)))
+
+    # Atributos Problemáticos: título (18), cabeçalho (19) e uma linha por posição
+    ws.cell(18, 1, f'={busca("Q", 7)}&""').font = Font(bold=True)
+    for coluna, titulo in enumerate(TITULOS_POR_ATRIBUTO, start=1):
+        ws.cell(19, coluna, f'=IF($A$18="","","{titulo}")').font = Font(bold=True)
+    for k in range(1, max(r.atributos_problematicos.height for r in resultados) + 1):
+        linha = 19 + k
+        ws.cell(linha, 1, f'={busca("R", k)}&""')
+        ws.cell(linha, 2, f'={busca("S", k)}&""')
+        ws.cell(linha, 3, f'=IF(A{linha}="","",{busca("T", k)})').number_format = FORMATO_REAIS
+        ws.cell(linha, 4, f'=IF(A{linha}="","",{busca("U", k)})').number_format = FORMATO_PERCENTUAL
+
+    for letra, largura in zip("ABCD", (36, 20, 20, 22)):
+        ws.column_dimensions[letra].width = largura
 
 
 def rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
@@ -171,25 +307,30 @@ def rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
     return rotulo + ")"
 
 
-def _graficos(wb: openpyxl.Workbook, resumo, resultado: Resultado) -> None:
+def _graficos(wb: openpyxl.Workbook, resumo, resultados: list[Resultado], limite: int) -> None:
     """Abaixo de tudo no Resumo, o gráfico de barras da Idade e, abaixo dele, o de linha da Diferença absoluta por
-    Data-base. Os dados vão na aba oculta `_grafico`: a linha nas colunas A e B, as barras nas colunas D e E."""
+    Data-base. Os dados vão na aba oculta `_grafico`: a linha nas colunas A e B, as barras nas colunas D e E.
+    Com vários Batimentos, A:B e D:E são fórmulas que buscam o Batimento escolhido nos blocos (ver `_blocos`)."""
     dados = wb.create_sheet("_grafico")
     dados.sheet_state = "hidden"
-    dados.append(["Data-base", "Diferença absoluta"])
-    for data, absoluta in resultado.historico:
-        dados.append([data, absoluta / 100])
-        linha = dados.max_row
-        dados.cell(linha, 1).number_format = FORMATO_DATA
-        dados.cell(linha, 2).number_format = FORMATO_REAIS
-    fim_da_linha = dados.max_row
+    if len(resultados) > 1:
+        fim_da_linha, fim_das_barras = _blocos(dados, resultados, limite)
+    else:
+        resultado = resultados[0]
+        dados.append(["Data-base", "Diferença absoluta"])
+        for data, absoluta in resultado.historico:
+            dados.append([data, absoluta / 100])
+            linha = dados.max_row
+            dados.cell(linha, 1).number_format = FORMATO_DATA
+            dados.cell(linha, 2).number_format = FORMATO_REAIS
+        fim_da_linha = dados.max_row
 
-    dados.cell(1, 4, "Idade da Diferença")
-    dados.cell(1, 5, "Diferença absoluta")
-    for linha, (faixa, chaves, linhas, absoluta) in enumerate(resultado.por_idade, start=2):
-        dados.cell(linha, 4, rotulo_da_faixa(faixa, chaves, linhas))
-        dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
-    fim_das_barras = len(resultado.por_idade) + 1
+        dados.cell(1, 4, "Idade da Diferença")
+        dados.cell(1, 5, "Diferença absoluta")
+        for linha, (faixa, chaves, linhas, absoluta) in enumerate(resultado.por_idade, start=2):
+            dados.cell(linha, 4, rotulo_da_faixa(faixa, chaves, linhas))
+            dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
+        fim_das_barras = len(resultado.por_idade) + 1
 
     barras = BarChart()
     barras.title = TITULO_GRAFICO_DA_IDADE
