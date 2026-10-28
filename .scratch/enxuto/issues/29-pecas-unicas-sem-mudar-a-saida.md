@@ -26,4 +26,4 @@
 - pytest: 212 passed.
 
 **Onde está agora (depois da entrega):**
-Prefatoração entregue sem mudar a saída; os tickets 30 a 37 podem usar `quadro_do_resumo`, `cortar`, `excel.reais` e `_soltas`. Nada commitado.
+Prefatoração entregue sem mudar a saída; os tickets 30 a 37 podem usar `quadro_do_resumo`, `cortar`, `excel.reais` e `_soltas`.

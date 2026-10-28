@@ -11,7 +11,7 @@ from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
 from conciliacao_enxuta.excel import gravar_excel, rotulo_da_faixa
 from conciliacao_enxuta.exemplo import DIFERENCAS_SEM_CHAVE, gerar_bases_exemplo
 from conciliacao_enxuta.gui_estado import conciliar_pela_janela
-from conciliacao_enxuta.leitura import ler_base
+from conftest import ler_base
 
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
@@ -976,6 +976,20 @@ def test_xlsx_que_nao_grava_nao_muda_nenhum_dos_dois_e_da_mensagem_simples_na_cl
     assert f"conciliacao_{gabarito.data_base.isoformat()}.xlsx" in saida.err
     assert "Traceback" not in saida.err and "Errno" not in saida.err
     assert {caminho: (caminho.read_bytes(), caminho.stat().st_mtime_ns) for caminho in antes} == antes
+
+
+def test_pasta_sem_permissao_nao_manda_fechar_o_excel(tmp_path, capsys, monkeypatch):
+    gabarito = gerar_bases_exemplo(tmp_path)
+
+    def sem_permissao(resultados, pasta):
+        raise PermissionError(13, "Acesso negado", str(tmp_path / "conciliacao_novo.xlsx"))
+
+    monkeypatch.setattr("conciliacao_enxuta.cli.gravar_excel", sem_permissao)
+    codigo = main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)])
+
+    saida = capsys.readouterr()
+    assert codigo == 1
+    assert saida.err.strip() == f"{tmp_path}: não deu para gravar na pasta de saída; falta permissão."
 
 
 BASE_B_BOA = "Chave;Data;Valor\n1;30/09/2026;10,00\n"

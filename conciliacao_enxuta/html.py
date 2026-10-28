@@ -157,8 +157,6 @@ def _cabecalho(titulos: tuple[str, ...]) -> str:
     return "<table><tr>" + "".join(f"<th>{escape(t)}</th>" for t in titulos) + "</tr>"
 
 
-
-
 def _dados_do_grafico(titulos: tuple[str, str], linhas: list[tuple[str, str]]) -> str:
     """Os dados do gráfico em tabela, recolhida, para quem não enxerga as marcas."""
     corpo = "".join(f'<tr><td>{escape(r)}</td><td class="n">{v}</td></tr>' for r, v in linhas)
@@ -226,7 +224,7 @@ def _grafico_de_linha(resultado: Resultado) -> str:
     if historico:  # o valor no fim da linha, acima do último ponto e alinhado à direita para não cortar
         x, y = pontos[-1]
         svg.append(f'<text class="v" x="{min(x, fim):.1f}" y="{y - 10:.1f}" text-anchor="end">{reais(historico[-1][1])}</text>')
-    if historico:  # uma Data-base só: a data uma vez
+        # A primeira data; com uma Data-base só, ela aparece uma vez
         svg.append(f'<text x="{esquerda}" y="{base + 20}">{historico[0][0]:%d/%m/%Y}</text>')
     if len(historico) > 1:
         svg.append(f'<text x="{fim}" y="{base + 20}" text-anchor="end">{historico[-1][0]:%d/%m/%Y}</text>')

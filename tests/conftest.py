@@ -7,6 +7,8 @@ import re
 import openpyxl
 import pytest
 
+from conciliacao_enxuta.leitura import ler_batimentos
+
 _INDEX = re.compile(r"INDEX\('_grafico'!\$([A-Z])\$2:\$[A-Z]\$\d+,\('_grafico'!\$G\$2-1\)\*(\d+)\+(\d+)\)")
 _NA = object()
 
@@ -67,3 +69,9 @@ def formulas_resolvidas(monkeypatch):
         return wb
 
     monkeypatch.setattr(openpyxl, "load_workbook", carregar)
+
+
+def ler_base(caminho):
+    """A base e as Linhas rejeitadas do primeiro Batimento; para o arquivo só com `Valor`, o único."""
+    primeiro = next(iter(ler_batimentos(caminho).values()))
+    return primeiro.base, primeiro.rejeitadas

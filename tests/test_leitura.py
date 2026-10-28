@@ -9,7 +9,8 @@ import polars as pl
 import pytest
 
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
-from conciliacao_enxuta.leitura import ErroDeLeitura, ler_base, ler_batimentos
+from conciliacao_enxuta.leitura import ErroDeLeitura, ler_batimentos
+from conftest import ler_base
 
 
 def test_valor_vira_centavos_exatos_mesmo_em_valores_grandes(tmp_path):
@@ -680,6 +681,17 @@ def test_valor_ilegivel_rejeita_a_linha_so_no_seu_batimento_e_data_ilegivel_em_t
     assert juros.rejeitadas.select("Linha", "Motivo").rows() == [(2, "Valor ilegível"), (3, "Data ilegível")]
     assert receita.base["Chave"].to_list() == ["1", "3"]
     assert receita.rejeitadas.select("Linha", "Motivo").rows() == [(3, "Data ilegível")]
+
+
+def test_linha_sem_chave_e_data_com_valor_so_num_batimento_e_rejeitada_pela_data_em_todos(tmp_path):
+    # Vazia só no Juros, a linha não é toda vazia: a Data vazia a rejeita nos dois, e a aba Erros a mostra uma vez
+    caminho = tmp_path / "base.csv"
+    caminho.write_text("Chave,Data,Valor Juros,Valor Receita\n,,,5.00\n,,,\n", encoding="utf-8")
+
+    batimentos = ler_batimentos(caminho)
+
+    for lida in batimentos.values():
+        assert lida.rejeitadas.select("Linha", "Motivo").rows() == [(2, "Data vazia")]
 
 
 @pytest.mark.parametrize("cabecalho", ["Valor Juros;valor_juros", "Valor;VALOR"])

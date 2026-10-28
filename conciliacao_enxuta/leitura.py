@@ -145,7 +145,10 @@ def _ler_tabela(caminho: Path) -> pl.DataFrame:
 def _topo_do_xlsx(caminho: Path) -> tuple[int, list[str]]:
     """Quantas linhas vazias há antes do cabeçalho do `.xlsx`, que a leitura pula, e o cabeçalho como o usuário
     escreveu (o polars renomeia o segundo `Valor` para `Valor_1`)."""
-    folha = fastexcel.read_excel(caminho).load_sheet(0, header_row=None, skip_rows=0, dtypes="string").to_polars()
+    # shortcut: só as 1.000 primeiras linhas; um cabeçalho abaixo disso não é achado, ler mais se aparecer um caso
+    folha = fastexcel.read_excel(caminho).load_sheet(
+        0, header_row=None, skip_rows=0, n_rows=1000, dtypes="string"
+    ).to_polars()
     vazias = folha.select((~pl.all_horizontal(pl.all().is_null())).arg_max()).item()
     return vazias, [c for c in folha.row(vazias) if c is not None]
 
@@ -238,8 +241,15 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
 
 
-def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame, pl.DataFrame, pl.Series]:
-    """A base, as Linhas rejeitadas e as Datas do arquivo de um Batimento: `df` já tem `Chave`, `Data` e `Valor`."""
+def _vazio(coluna: str, tipo: pl.DataType) -> pl.Expr:
+    return _como_texto(coluna, tipo).str.strip_chars().fill_null("") == ""
+
+
+def _ler_um(
+    df: pl.DataFrame, extensao: str, vazias: int, sem_valor: pl.Series
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.Series]:
+    """A base, as Linhas rejeitadas e as Datas do arquivo de um Batimento: `df` já tem `Chave`, `Data` e `Valor`.
+    `sem_valor` marca as linhas sem nenhuma coluna de valor, de nenhum Batimento."""
     df = _tipo_lido(df)
     para_ler = _valor_float_em_texto(df)
     base = para_ler.select(
@@ -252,7 +262,7 @@ def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame,
     # as linhas vazias antes do cabeçalho; no `.parquet`, não há cabeçalho.
     primeira_linha = (1 if extensao == ".parquet" else 2) + vazias
     como_veio = {c: _como_texto(c, df.schema[c]) for c in ("Data", "Valor")}
-    vazio = {c: texto.str.strip_chars().fill_null("") == "" for c, texto in como_veio.items()}
+    vazio = {c: _vazio(c, df.schema[c]) for c in ("Data", "Valor")}
     chave = _em_texto("Chave", df.schema["Chave"])
     lidas = df.select(
         (pl.int_range(pl.len()) + primeira_linha).alias("Linha"),
@@ -266,8 +276,9 @@ def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame,
         .when(base["Valor"].is_null()).then(pl.lit("Valor ilegível"))
         .alias("Motivo"),
     )
-    # A linha toda vazia (sem Chave, Data e Valor) é ignorada em silêncio
-    toda_vazia = lidas["Chave"].is_null() & df.select(vazio["Data"] & vazio["Valor"]).to_series()
+    # A linha toda vazia (sem Chave, Data e Valor de nenhum Batimento) é ignorada em silêncio; com o Valor de
+    # outro Batimento, a Data vazia a rejeita em todos
+    toda_vazia = lidas["Chave"].is_null() & df.select(vazio["Data"]).to_series() & sem_valor
     rejeitada = lidas["Motivo"].is_not_null() & ~toda_vazia
     rejeitadas = lidas.filter(rejeitada)
     # O Valor lido (a linha caiu pela Data) sai em reais; o que não pôde ser lido sai como veio
@@ -332,16 +343,11 @@ def ler_batimentos(caminho: str | Path) -> dict[str, Leitura]:
         encontradas = ", ".join(c.lstrip("﻿").strip() for c in lido.columns)
         falta = f"falta a coluna {faltam[0]}" if len(faltam) == 1 else f"faltam as colunas {', '.join(faltam)}"
         raise ErroDeLeitura(f"{arquivo}: {falta}. Colunas encontradas: {encontradas}.")
+    sem_valor = lido.select(pl.all_horizontal(_vazio(c, lido.schema[c]) for c in valores)).to_series()
     batimentos = {}
     for coluna in valores:
         nome = _normalizado(coluna)
         limpa = coluna.lstrip("﻿").strip()
-        base, rejeitadas, datas = _ler_um(_renomear_colunas(lido, coluna), extensao, vazias)
+        base, rejeitadas, datas = _ler_um(_renomear_colunas(lido, coluna), extensao, vazias, sem_valor)
         batimentos[nome] = Leitura(limpa[6:].strip() if nome != "valor" else "Valor", limpa, base, rejeitadas, datas)
     return batimentos
-
-
-def ler_base(caminho: str | Path) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """A base e as Linhas rejeitadas do primeiro Batimento; para o arquivo só com `Valor`, o único."""
-    primeiro = next(iter(ler_batimentos(caminho).values()))
-    return primeiro.base, primeiro.rejeitadas

@@ -43,9 +43,9 @@ def _caminho_limpo(texto: str) -> str:
 def conciliar_pela_janela(base_a: str, base_b: str, tolerancia: str) -> Resposta:
     """Os textos da janela → o `.xlsx` e o `.html` na pasta da Base A (a resposta traz o do `.xlsx`), ou a mensagem do que falta."""
     base_a, base_b = _caminho_limpo(base_a), _caminho_limpo(base_b)
-    if not base_a.strip():
+    if not base_a:
         return Resposta(mensagem="Escolha o arquivo da Base A.")
-    if not base_b.strip():
+    if not base_b:
         return Resposta(mensagem="Escolha o arquivo da Base B.")
     try:
         centavos = tolerancia_em_centavos(tolerancia)

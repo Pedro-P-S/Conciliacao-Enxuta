@@ -10,7 +10,7 @@ from conciliacao_enxuta.cli import main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
 from conciliacao_enxuta.exemplo import gerar_bases_exemplo
 from conciliacao_enxuta.html import gravar_html
-from conciliacao_enxuta.leitura import ler_base
+from conftest import ler_base
 
 
 class _Leitor(HTMLParser):

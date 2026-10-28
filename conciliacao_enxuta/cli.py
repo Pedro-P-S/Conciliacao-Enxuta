@@ -49,9 +49,12 @@ def conciliar_arquivos(base_a: Path, base_b: Path, tolerancia: int, pasta: Path)
     try:
         xlsx = gravar_excel(resultados, pasta)
     except PermissionError as erro:
-        raise ArquivoNaoGravado(
-            f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."
-        ) from erro
+        # Só o arquivo que já existe pode estar aberto no Excel; senão, falta permissão na pasta
+        if Path(erro.filename).exists():
+            raise ArquivoNaoGravado(
+                f"{Path(erro.filename).name}: não deu para gravar; feche o arquivo no Excel e tente de novo."
+            ) from erro
+        raise ArquivoNaoGravado(f"{pasta}: não deu para gravar na pasta de saída; falta permissão.") from erro
     return xlsx, gravar_html(resultados, pasta), avisos
 
 
