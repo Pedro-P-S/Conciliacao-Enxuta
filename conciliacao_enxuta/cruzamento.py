@@ -46,6 +46,7 @@ class Resultado:
     total_b: int
     diferenca_total: int
     diferenca_absoluta: int
+    chaves: int  # as Chaves cruzadas na Data-base mais recente, com e sem Diferença
     chaves_com_diferenca: int
     sem_chave_a: SemChave  # só na Data-base mais recente
     sem_chave_b: SemChave
@@ -399,6 +400,7 @@ def conciliar(
         total_b=int(b.filter(pl.col("Data") == data_base)["B"].sum()) + sem_b.soma,
         diferenca_total=int(na_mais_recente["Diferenca"].sum() + soltas_na_mais_recente.sum()),
         diferenca_absoluta=int(na_mais_recente["Diferenca"].abs().sum() + soltas_na_mais_recente.abs().sum()),
+        chaves=cruzado.filter(pl.col("Data") == data_base).height,
         chaves_com_diferenca=na_mais_recente.height,
         data_bases_so_em_a=tuple(sorted(datas_a - datas_b)),
         data_bases_so_em_b=tuple(sorted(datas_b - datas_a)),

@@ -1,7 +1,7 @@
 """Resultado → `.html` com o Resumo do Excel, num arquivo só e sem nada buscado na internet.
 
 O único script desenha o gráfico da Diferença no tempo, com período e zoom, e, com mais de um Batimento, faz o
-filtro. A Tolerância e as linhas sem Chave ficam só no Excel.
+filtro. A Tolerância, as linhas sem Chave e as Linhas rejeitadas ficam só no Excel.
 
 Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
 """
@@ -23,6 +23,7 @@ from conciliacao_enxuta.excel import (
     TITULO_PROBLEMATICOS,
     TITULOS_POR_ATRIBUTO,
     avisos,
+    milhar,
     quadro_do_resumo,
     reais,
     rotulo_da_faixa,
@@ -72,6 +73,11 @@ select:focus-visible, summary:focus-visible { outline: 3px solid var(--foco); ou
 .destaque .valor { font-size: clamp(34px, 8vw, 46px); font-weight: 700; color: var(--serie-1); letter-spacing: -0.01em; }
 .chaves { grid-column: span 2; }
 .chaves .valor { font-size: clamp(28px, 6vw, 34px); }
+.com-parte { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }
+.parte { display: flex; flex-direction: column; line-height: 1.2; }
+.fracao { font-family: "Exo 2", "Segoe UI", system-ui, sans-serif; font-size: 20px; font-weight: 600;
+  color: var(--foco); font-variant-numeric: tabular-nums; }
+.de { font-size: 14px; color: var(--painel-rotulo); }
 @media (max-width: 560px) {
   .painel { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 22px; gap: 20px 16px; }
   .meta, .conta, .destaque, .chaves { grid-column: span 2; }
@@ -352,16 +358,25 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
 def _resumo(resultado: Resultado, limite: int, total_de_operacoes: int) -> str:
     """O Resumo de um Batimento: o quadro, os avisos, os Atributos Problemáticos e os dois gráficos."""
     partes = ['<div class="painel">']
-    partes += [
-        f'<div class="{_LUGAR_NO_PAINEL[rotulo]}"><span class="rotulo">{escape(rotulo)}</span>'
-        f'<span class="valor">{escape(texto)}</span></div>'
-        for rotulo, _, _, texto in quadro_do_resumo(resultado)
-        if rotulo in _LUGAR_NO_PAINEL
-    ]
+    for rotulo, _, _, texto in quadro_do_resumo(resultado):
+        if rotulo not in _LUGAR_NO_PAINEL:
+            continue
+        valor = f'<span class="valor">{escape(texto)}</span>'
+        if rotulo == "Chaves com Diferença" and resultado.chaves:  # e, ao lado, quanto são de todas as Chaves
+            fracao = f"{_percentual(resultado.chaves_com_diferenca / resultado.chaves)}%".replace(".", ",")
+            total = f"{milhar(resultado.chaves)} {'Chave' if resultado.chaves == 1 else 'Chaves'}"
+            valor = (
+                f'<span class="com-parte">{valor}<span class="parte"><span class="fracao">{fracao}</span>'
+                f'<span class="de">das {total}</span></span></span>'
+            )
+        partes.append(f'<div class="{_LUGAR_NO_PAINEL[rotulo]}"><span class="rotulo">{escape(rotulo)}</span>{valor}</div>')
     partes.append("</div>")
 
-    # Avisos, só quando acontecem; as linhas sem Chave ficam só no Excel
-    partes += [f'<p class="aviso">{escape(aviso)}</p>' for aviso in avisos(resultado, limite, total_de_operacoes)]
+    # O aviso do corte, só quando acontece; as linhas sem Chave e as Linhas rejeitadas ficam só no Excel
+    partes += [
+        f'<p class="aviso">{escape(aviso)}</p>'
+        for aviso in avisos(resultado, limite, total_de_operacoes, rejeitadas=False)
+    ]
 
     # Os Atributos Problemáticos; sem Atributo acima do peso, a tabela não aparece
     if resultado.atributos_problematicos.height:

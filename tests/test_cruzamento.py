@@ -37,6 +37,16 @@ def test_juncao_completa_com_lado_ausente_valendo_zero():
     assert r.diferenca_absoluta == 7_000
 
 
+def test_chaves_sao_todas_as_cruzadas_na_data_base_mais_recente_com_e_sem_diferenca():
+    a = base([("1", 10_000), ("2", 5_000), ("2", 1_000), (None, 300)]).vstack(base([("9", 1)], DIA - timedelta(1)))
+    b = base([("1", 10_000), ("3", 2_000)]).vstack(base([("9", 1)], DIA - timedelta(1)))
+
+    r = conciliar(a, b, tolerancia=100)
+
+    # 1, 2 (repetida, somada) e 3; a linha sem Chave e a Chave 9 de outra Data-base não contam
+    assert (r.chaves, r.chaves_com_diferenca) == (3, 2)
+
+
 def test_diferenca_igual_a_tolerancia_nao_conta_e_um_centavo_acima_conta():
     a = base([("igual", 10_100), ("acima", 10_101)])
     b = base([("igual", 10_000), ("acima", 10_000)])

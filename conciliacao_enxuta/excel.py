@@ -62,12 +62,13 @@ def cortar(tabela: pl.DataFrame, limite: int, aviso: str) -> tuple[pl.DataFrame,
     return tabela.head(limite), aviso.format(limite=milhar(limite), total=milhar(tabela.height))
 
 
-def avisos(resultado: Resultado, limite: int, operacoes: int | None = None) -> list[str]:
+def avisos(resultado: Resultado, limite: int, operacoes: int | None = None, rejeitadas: bool = True) -> list[str]:
     """Os avisos do Resumo que acontecem: Linhas rejeitadas e corte das operações acima de `limite`.
 
-    `operacoes` é o total de operações da aba inteira, quando a aba junta vários Batimentos."""
+    `operacoes` é o total de operações da aba inteira, quando a aba junta vários Batimentos; `rejeitadas=False`
+    deixa de fora o das Linhas rejeitadas, que o HTML não mostra."""
     lista = []
-    if resultado.rejeitadas.height:
+    if rejeitadas and resultado.rejeitadas.height:
         lista.append(f"Linhas rejeitadas: {milhar(resultado.rejeitadas.height)} (veja a aba Erros)")
     total = resultado.operacoes.height if operacoes is None else operacoes
     if total > limite:

@@ -97,13 +97,23 @@ def depois(textos: list[str], rotulo: str, quantos: int) -> list[str]:
     return textos[inicio : inicio + quantos]
 
 
-def test_html_traz_o_aviso_de_linhas_rejeitadas_depois_do_quadro_e_nao_as_linhas_sem_chave(tmp_path, capsys):
+def test_html_nao_traz_as_linhas_rejeitadas_nem_as_linhas_sem_chave(tmp_path, capsys):
     gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
 
     textos = ler_html(linhas[1]).textos
-    rejeitadas = f"Linhas rejeitadas: {len(gabarito.rejeitadas)} (veja a aba Erros)"
-    assert textos.index("Chaves com Diferença") < textos.index(rejeitadas)
-    assert gabarito.sem_chave_a.linhas and "Linhas sem Chave, fora do cruzamento" not in textos  # só no Excel
+    assert gabarito.rejeitadas and not any(t.startswith("Linhas rejeitadas") for t in textos)  # só no Excel
+    assert gabarito.sem_chave_a.linhas and "Linhas sem Chave, fora do cruzamento" not in textos
+
+
+def test_ao_lado_das_chaves_com_diferenca_vem_a_porcentagem_das_chaves(tmp_path, capsys):
+    # Chaves 1, 2 e 3; só a 1 tem Diferença: 1 de 3 é 33,33%
+    _, html = conciliar_csv(
+        tmp_path, capsys,
+        "Chave,Data,Valor\n1,2026-09-30,10.00\n2,2026-09-30,10.00\n3,2026-09-30,10.00\n",
+        "Chave,Data,Valor\n1,2026-09-30,15.00\n2,2026-09-30,10.00\n3,2026-09-30,10.00\n",
+    )
+
+    assert depois(ler_html(html).textos, "Chaves com Diferença", 3) == ["1", "33,33%", "das 3 Chaves"]
 
 
 def test_sem_avisos_o_html_nao_tem_aviso(tmp_path, capsys):
@@ -153,8 +163,7 @@ def test_html_traz_os_atributos_problematicos_do_gabarito_depois_dos_avisos(tmp_
         esperado += [atributo, valor, reais(absoluta), f"{acima * 100:.2f}%".replace(".", ",")]
     assert depois(textos, titulo, len(esperado)) == esperado
     assert textos[textos.index(titulo) + 5 : textos.index(titulo) + 7] == ["Carteira", "Legado"]
-    rejeitadas = next(t for t in textos if t.startswith("Linhas rejeitadas"))
-    assert textos.index(titulo) > textos.index(rejeitadas)
+    assert textos.index(titulo) > textos.index("Chaves com Diferença")
 
 
 def test_sem_atributo_acima_do_peso_o_html_nao_tem_atributos_problematicos(tmp_path, capsys):
