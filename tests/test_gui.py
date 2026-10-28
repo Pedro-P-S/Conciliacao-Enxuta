@@ -57,7 +57,7 @@ def test_tolerancia_grande_demais_da_mensagem_simples():
     resposta = conciliar_pela_janela("a.csv", "b.csv", "999999999999999999999")
 
     assert resposta.caminho is None
-    assert resposta.mensagem.startswith("Tolerância grande demais")
+    assert resposta.mensagem.startswith("Tolerância inválida")
 
 
 def test_tolerancia_padrao_da_janela_e_1_00():

@@ -146,7 +146,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 
   Os dados dos dois gráficos ficam na aba oculta `_grafico`. Sem tabela de histórico nem de Idade.
 
-  Com vários Batimentos, o Resumo tem no topo uma lista suspensa (validação de dados) com os Batimentos, na ordem da Base A, e abre no primeiro; sem "Todos". O quadro, os avisos, os Atributos Problemáticos e os dois gráficos seguem a escolha por fórmula, sem macro: os números de cada Batimento ficam na aba `_grafico`, e as células do Resumo e as séries dos gráficos os buscam pelo Batimento escolhido.
+  O Resumo tem no topo uma lista suspensa (validação de dados) com os Batimentos, na ordem da Base A, e abre no primeiro; sem "Todos". Com um Batimento só, a lista tem uma opção, para o Resumo ser montado de um jeito só. O quadro, os avisos, os Atributos Problemáticos e os dois gráficos seguem a escolha por fórmula, sem macro: os números de cada Batimento ficam na aba `_grafico`, e as células do Resumo e as séries dos gráficos os buscam pelo Batimento escolhido.
 - **Coluna Batimento:** as abas Por Tipo do Erro, Por Atributo, Operações com Diferença e Erros têm a coluna `Batimento` na frente, com filtro no cabeçalho, e as linhas vêm por Batimento e depois na ordem desta seção. O limite de linhas é da aba inteira; nas Operações, se cortar, ficam as maiores Diferenças absolutas de todos os Batimentos. Na aba Erros, a Linha rejeitada pela Data e a Data-base ignorada aparecem uma vez, com `Batimento` = `Todos`; a rejeitada pelo Valor leva o seu Batimento.
 - **Por Tipo do Erro:** colunas Tipo do Erro, Chaves e Diferença absoluta, ordenadas pela Diferença absoluta, com uma nota de que uma Chave pode contar em mais de um Tipo.
 - **Por Atributo:** colunas Atributo, Valor, Diferença absoluta e Diferença acima do peso (em %). Sem filtro. Sem Atributo nas bases, fica só o cabeçalho.
@@ -156,7 +156,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 
 **Interface:**
 - **GUI Tkinter:** Base A e Base B, cada uma com o botão Procurar, a Tolerância (padrão 1,00) e o botão Conciliar. No fim, mostra o caminho do `.xlsx` e um botão para abrir a pasta. Os erros aparecem em linguagem simples, e o traceback vai para `%LOCALAPPDATA%\ConciliacaoEnxuta\erros.log`. O caminho colado com espaço nas pontas ou entre aspas (o "Copiar como caminho" do Windows) é aceito. Se o `erros.log` não pode ser gravado, a mensagem simples aparece mesmo assim, e o resultado da execução anterior sai da tela.
-- **Tolerância**, na GUI e na CLI: lida no formato brasileiro, com as mesmas regras de separador do Valor (`1.000` é R$ 1.000,00, `0,50` é R$ 0,50). Uma Tolerância que não vira número, ou grande demais, dá uma mensagem simples. O arredondamento dela para centavos fica como está.
+- **Tolerância**, na GUI e na CLI: lida no formato brasileiro, com as mesmas regras de separador do Valor (`1.000` é R$ 1.000,00, `0,50` é R$ 0,50). Uma Tolerância que não vira número, negativa ou grande demais dá uma mensagem simples. Arredonda para centavos como o Valor, com o meio para longe do zero (`0,125` é R$ 0,13).
 - **CLI:** `python -m conciliacao_enxuta conciliar BASE_A BASE_B [--tolerancia 1,00] [--saida PASTA]`. Imprime o caminho dos dois arquivos. Os erros saem em mensagem simples, sem traceback na tela, inclusive o inesperado.
 - **Autoteste:** com `CONCILIACAO_AUTOTESTE=1`, a GUI monta escondida, fecha sozinha e sai com 0 (ou 1, se falhar).
 
@@ -171,7 +171,7 @@ Origem: `GRILL.md`, decisões 27 a 34, e o briefing da auditoria. Histórias 47 
 - **Erros do arquivo inteiro:** a lista completa está em Regras; todos com mensagem simples, sem traceback, na CLI e na GUI.
 - **Gravação:** o `.xlsx` antes do `.html`; se o `.xlsx` falha, nenhum dos dois muda.
 - **GUI:** aceita o caminho com aspas ou espaço nas pontas; o `erros.log` que não grava não impede a mensagem simples e tira da tela o resultado anterior.
-- **Tolerância:** no formato brasileiro, com mensagem simples quando inválida ou grande demais. O arredondamento não muda.
+- **Tolerância:** no formato brasileiro, com mensagem simples quando inválida ou grande demais. O arredondamento passou a ser o do Valor em 28/10/2026, a pedido do usuário.
 - **Linha no `.xlsx`:** conta as linhas vazias antes do cabeçalho.
 - **HTML igual ao Excel:** percentual, eixo com 0, uma Data-base só e caractere de controle, como em Saída.
 - **Implementação, sem mudar o que o usuário vê:** um pipeline só, `conciliar_arquivos`, usado pela CLI e pelo `gui_estado`; `quadro_do_resumo` no `excel`, usado pelo Excel e pelo HTML; o corte por limite e o seu aviso numa função só; os reais em texto numa função só; a regra de sinal da linha sem Chave num lugar só; o gerador de exemplo aceita o formato sem diferenciar maiúscula.
@@ -224,4 +224,4 @@ Origem: `GRILL.md`, decisões 35 a 41. Histórias 59 a 66.
 
 - Princípios do `CLAUDE.md`: entre duas soluções equivalentes, a mais simples; nada além do pedido; o ganho é de quem lê o resultado.
 - Peças que podem ser copiadas do projeto grande e adaptadas: parse de valor brasileiro e de data, centavos, leitura de csv/xlsx/parquet, formatação em reais e a detecção de padrões.
-- Perguntas abertas da auditoria, fora desta spec até o usuário responder: o corte da aba Por Atributo, a célula Linha sem Chave acima de 32.767 caracteres, a Chave numérica de mais de 15 dígitos no `.xlsx`, onde a Tolerância mora e o seu arredondamento, o Atributo com nome de coluna do relatório (`Valor A`, `Tipo do Erro`), a soma acima do `Int64` numa Chave, o `exemplo.py` fora do pacote, o termo Folga da Tolerância e as perguntas abertas 1 a 15.
+- Perguntas abertas da auditoria, fora desta spec até o usuário responder: o corte da aba Por Atributo, a célula Linha sem Chave acima de 32.767 caracteres, a Chave numérica de mais de 15 dígitos no `.xlsx`, onde a Tolerância mora, o Atributo com nome de coluna do relatório (`Valor A`, `Tipo do Erro`), a soma acima do `Int64` numa Chave, o `exemplo.py` fora do pacote, o termo Folga da Tolerância e as perguntas abertas 1 a 15.

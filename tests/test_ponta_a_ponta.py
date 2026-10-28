@@ -206,9 +206,9 @@ def test_data_bases_ignoradas_vem_em_ordem_de_data_antes_das_linhas_rejeitadas(t
         ("1.000", 100_000),
         ("1.000,50", 100_050),
         ("0.5", 50),
-        # O arredondamento para centavos fica como estava: o meio vai para o par
+        # Arredonda como o Valor das bases: o meio para longe do zero
         ("0,015", 2),
-        ("0,025", 2),
+        ("0,025", 3),
     ],
 )
 def test_tolerancia_no_formato_brasileiro(tmp_path, capsys, texto, centavos):
@@ -256,7 +256,7 @@ def test_tolerancia_grande_demais_e_recusada_com_mensagem_simples(tmp_path, caps
 
     assert saida.value.code == 2
     erro = capsys.readouterr().err
-    assert "Tolerância grande demais" in erro
+    assert "Tolerância inválida" in erro
     assert "Traceback" not in erro
     assert not list(tmp_path.glob("*.xlsx"))
 

@@ -55,7 +55,7 @@ def _renomear_colunas(df: pl.DataFrame, valor: str) -> pl.DataFrame:
     return df.drop(outras).rename({**novos, valor: "Valor"})
 
 
-def _centavos(texto: pl.Expr) -> pl.Expr:
+def centavos(texto: pl.Expr) -> pl.Expr:
     """`R$ 1.234,56` → 123456; `(1.234,56)` e `-1.234,56` são negativos.
 
     O ponto é milhar só em grupos de 3 dígitos com o primeiro sem zero na frente (`1.234`, `1.234.567`).
@@ -213,10 +213,10 @@ def _data_de(tipo: pl.DataType) -> pl.Expr:
 
 def _valor_float_em_texto(df: pl.DataFrame) -> pl.DataFrame:
     """O Valor `float` vira o texto mais curto que o representa no próprio tipo (`1.005`, também em `float32`;
-    `2.1249999999`; sem `1e+16`), com vírgula decimal, para passar por `_centavos`, que arredonda uma vez só.
+    `2.1249999999`; sem `1e+16`), com vírgula decimal, para passar por `centavos`, que arredonda uma vez só.
     NaN e infinito viram `NaN` e `Infinity`, que são ilegíveis.
 
-    É uma coluna, calculada uma vez só: o `_centavos` usa a entrada dezenas de vezes."""
+    É uma coluna, calculada uma vez só: o `centavos` usa a entrada dezenas de vezes."""
     if not df.schema["Valor"].is_float():
         return df
     texto = [None if v is None else format(Decimal(v), "f").replace(".", ",") for v in df["Valor"].cast(pl.String)]
@@ -224,7 +224,7 @@ def _valor_float_em_texto(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _centavos_de(tipo: pl.DataType) -> pl.Expr:
-    """Valor inteiro, em reais, vira centavos; `decimal` e texto passam por `_centavos`; outro tipo é ilegível.
+    """Valor inteiro, em reais, vira centavos; `decimal` e texto passam por `centavos`; outro tipo é ilegível.
 
     O `float` chega aqui já em texto (ver `_valor_float_em_texto`)."""
     if tipo.is_integer():
@@ -233,11 +233,11 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
         limite = (2**63 - 1) // 100
         return pl.when(reais.is_between(-limite, limite)).then(reais * 100)
     if isinstance(tipo, pl.Decimal):
-        # O `decimal` já é exato: o texto dele passa por `_centavos`, que arredonda uma vez só. O ponto do
+        # O `decimal` já é exato: o texto dele passa por `centavos`, que arredonda uma vez só. O ponto do
         # número é decimal, então vira vírgula (`10.505` não é milhar)
-        return _centavos(pl.col("Valor").cast(pl.String).str.replace(".", ",", literal=True))
+        return centavos(pl.col("Valor").cast(pl.String).str.replace(".", ",", literal=True))
     if tipo == pl.String:
-        return _centavos(pl.col("Valor"))
+        return centavos(pl.col("Valor"))
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
 
 
@@ -313,7 +313,7 @@ def ler_batimentos(caminho: str | Path) -> dict[str, Leitura]:
     outro Batimento não é Atributo.
 
     Data em `DD/MM/AAAA`, `AAAA-MM-DD`, data do Excel ou data nativa; Valor numérico ou no formato
-    brasileiro (ver `_centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
+    brasileiro (ver `centavos`). Extensão diferente dessas três dá `FormatoNaoSuportado`.
     """
     caminho = Path(caminho)
     arquivo = caminho.name

@@ -47,7 +47,7 @@ Registro das decisões. O glossário fica em `CONTEXT.md`. Quando uma decisão m
 29. **Erros do arquivo inteiro** (arquivo que não existe ou não abre, vazio, corrompido, com campo a mais, numa codificação que não é UTF-8 nem cp1252, ou com `Chave`, `Data` ou `Valor` repetida, como `Data` e `DATA`) param a execução com uma mensagem simples que diz o arquivo, na CLI e na GUI, sem traceback. A pasta de saída que não existe também. Um erro inesperado na CLI sai sem traceback na tela.
 30. **Gravação:** o `.xlsx` é gravado antes do `.html`. Se o `.xlsx` não pode ser gravado (aberto no Excel), nenhum dos dois muda.
 31. **GUI:** o caminho colado com espaço nas pontas ou entre aspas (o "Copiar como caminho" do Windows) é aceito. Se o `erros.log` não pode ser gravado, a mensagem simples aparece mesmo assim, e o resultado anterior sai da tela.
-32. **Tolerância:** lida no formato brasileiro, como o Valor (`1.000` é R$ 1.000,00). Uma Tolerância que não vira número, ou grande demais, dá uma mensagem simples. O arredondamento dela fica como está (pergunta aberta).
+32. **Tolerância:** lida no formato brasileiro, como o Valor (`1.000` é R$ 1.000,00). Uma Tolerância que não vira número, ou grande demais, dá uma mensagem simples. O arredondamento dela é o do Valor, com o meio para longe do zero (decidido em 28/10/2026).
 33. **Linha da Linha rejeitada no `.xlsx`:** a do arquivo, contando as linhas vazias antes do cabeçalho.
 34. **HTML igual ao Excel:** o percentual arredonda como no Excel; o eixo do gráfico mostra 0 quando não há Diferença; com uma Data-base só, o gráfico de linha mostra o ponto e a data uma vez; o caractere de controle sai do texto, como no Excel.
 

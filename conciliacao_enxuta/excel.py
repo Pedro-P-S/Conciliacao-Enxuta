@@ -118,7 +118,7 @@ def gravar_excel(resultados: list[Resultado], pasta: str | Path, limite: int = L
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Resumo"
-    (_resumo_com_lista if len(resultados) > 1 else _resumo_de_um)(ws, resultados, limite)
+    _resumo(ws, resultados, limite)
 
     _aba_por_tipo(wb, resultados)
     _aba_por_atributo(wb, resultados)
@@ -130,44 +130,7 @@ def gravar_excel(resultados: list[Resultado], pasta: str | Path, limite: int = L
     return caminho
 
 
-def _resumo_de_um(ws, resultados: list[Resultado], limite: int) -> None:
-    """O Resumo de um Batimento só: valores gravados direto, sem lista."""
-    resultado = resultados[0]
-    quadro = quadro_do_resumo(resultado)
-    for linha, (rotulo, valor, formato, _) in enumerate(quadro, start=1):
-        ws.cell(linha, 1, rotulo).font = Font(bold=True)
-        ws.cell(linha, 2, valor).number_format = formato
-
-    # Avisos, só quando acontecem, a partir de uma linha abaixo do quadro
-    linha = len(quadro) + 2
-    if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
-        for coluna, titulo in enumerate(TITULOS_SEM_CHAVE, start=1):
-            ws.cell(linha, coluna, titulo).font = Font(bold=True)
-        for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
-            linha += 1
-            ws.cell(linha, 1, base)
-            ws.cell(linha, 2, sem_chave.linhas).number_format = FORMATO_INTEIRO
-            ws.cell(linha, 3, sem_chave.soma / 100).number_format = FORMATO_REAIS
-        linha += 2
-
-    for linha, aviso in enumerate(
-        avisos(resultado, limite, sum(r.operacoes.height for r in resultados)), start=linha
-    ):
-        ws.cell(linha, 1, aviso)
-
-    # Os Atributos Problemáticos, uma linha abaixo dos avisos; sem Atributo acima do peso, a tabela não aparece
-    if resultado.atributos_problematicos.height:
-        linha = ws.max_row + 2
-        ws.cell(linha, 1, TITULO_PROBLEMATICOS).font = Font(bold=True)
-        _tabela_por_atributo(ws, linha + 1, resultado.atributos_problematicos)
-
-    ws.column_dimensions["A"].width = 36
-    ws.column_dimensions["B"].width = 20
-    ws.column_dimensions["C"].width = 20
-    ws.column_dimensions["D"].width = 22
-
-
-# Com vários Batimentos, a `_grafico` guarda um bloco de ALTURA linhas por Batimento nas colunas I a U, na ordem da
+# A `_grafico` guarda um bloco de ALTURA linhas por Batimento nas colunas I a U, na ordem da
 # Base A; G2 é a posição do Batimento escolhido no Resumo e as fórmulas leem o bloco dele com INDEX.
 COLUNAS_DO_BLOCO = (
     "Batimento", "Histórico: Data-base", "Histórico: Diferença absoluta", "Idade: faixa", "Idade: Diferença absoluta",
@@ -252,8 +215,8 @@ def _blocos(dados, resultados: list[Resultado], limite: int) -> tuple[int, int]:
     return 1 + altura, 1 + len(resultados[0].por_idade)
 
 
-def _resumo_com_lista(ws, resultados: list[Resultado], limite: int) -> None:
-    """O Resumo de vários Batimentos: a lista suspensa na linha 1 e, abaixo, só fórmulas que buscam o Batimento
+def _resumo(ws, resultados: list[Resultado], limite: int) -> None:
+    """O Resumo: a lista suspensa na linha 1 e, abaixo, só fórmulas que buscam o Batimento
     escolhido na `_grafico`. As linhas dos avisos e dos Atributos Problemáticos ficam sempre reservadas e aparecem
     em branco quando o Batimento escolhido não os tem."""
     ws.cell(1, 1, "Batimento").font = Font(bold=True)
@@ -310,27 +273,10 @@ def rotulo_da_faixa(faixa: str, chaves: int, linhas: int) -> str:
 def _graficos(wb: openpyxl.Workbook, resumo, resultados: list[Resultado], limite: int) -> None:
     """Abaixo de tudo no Resumo, o gráfico de barras da Idade e, abaixo dele, o de linha da Diferença absoluta por
     Data-base. Os dados vão na aba oculta `_grafico`: a linha nas colunas A e B, as barras nas colunas D e E.
-    Com vários Batimentos, A:B e D:E são fórmulas que buscam o Batimento escolhido nos blocos (ver `_blocos`)."""
+    A:B e D:E são fórmulas que buscam o Batimento escolhido nos blocos (ver `_blocos`)."""
     dados = wb.create_sheet("_grafico")
     dados.sheet_state = "hidden"
-    if len(resultados) > 1:
-        fim_da_linha, fim_das_barras = _blocos(dados, resultados, limite)
-    else:
-        resultado = resultados[0]
-        dados.append(["Data-base", "Diferença absoluta"])
-        for data, absoluta in resultado.historico:
-            dados.append([data, absoluta / 100])
-            linha = dados.max_row
-            dados.cell(linha, 1).number_format = FORMATO_DATA
-            dados.cell(linha, 2).number_format = FORMATO_REAIS
-        fim_da_linha = dados.max_row
-
-        dados.cell(1, 4, "Idade da Diferença")
-        dados.cell(1, 5, "Diferença absoluta")
-        for linha, (faixa, chaves, linhas, absoluta) in enumerate(resultado.por_idade, start=2):
-            dados.cell(linha, 4, rotulo_da_faixa(faixa, chaves, linhas))
-            dados.cell(linha, 5, absoluta / 100).number_format = FORMATO_REAIS
-        fim_das_barras = len(resultado.por_idade) + 1
+    fim_da_linha, fim_das_barras = _blocos(dados, resultados, limite)
 
     barras = BarChart()
     barras.title = TITULO_GRAFICO_DA_IDADE
@@ -388,23 +334,16 @@ def _aba_por_atributo(wb: openpyxl.Workbook, resultados: list[Resultado]) -> Non
     """
     ws = wb.create_sheet("Por Atributo")
     tabela = _com_batimento(resultados, "por_atributo")
-    _tabela_por_atributo(ws, 1, tabela, com_batimento=True)
+    for coluna, titulo in enumerate(("Batimento",) + TITULOS_POR_ATRIBUTO, start=1):
+        ws.cell(1, coluna, titulo).font = Font(bold=True)
+    for linha, (batimento, atributo, valor, absoluta, acima_do_peso) in enumerate(tabela.iter_rows(), start=2):
+        for coluna, texto in enumerate((batimento, atributo, valor), start=1):
+            _do_arquivo(ws, linha, coluna, texto)
+        ws.cell(linha, 4, absoluta / 100).number_format = FORMATO_REAIS
+        ws.cell(linha, 5, acima_do_peso).number_format = FORMATO_PERCENTUAL
     ws.auto_filter.ref = f"A1:E{tabela.height + 1}"
     for letra, largura in zip("ABCDE", (16, 24, 24, 20, 16)):
         ws.column_dimensions[letra].width = largura
-
-
-def _tabela_por_atributo(ws, linha_do_cabecalho: int, tabela, com_batimento: bool = False) -> None:
-    """Cabeçalho e linhas de uma tabela no formato de `Resultado.por_atributo`, a partir de `linha_do_cabecalho`;
-    com `com_batimento`, a tabela traz o Batimento como primeira coluna."""
-    titulos = (("Batimento",) if com_batimento else ()) + TITULOS_POR_ATRIBUTO
-    for coluna, titulo in enumerate(titulos, start=1):
-        ws.cell(linha_do_cabecalho, coluna, titulo).font = Font(bold=True)
-    for linha, valores in enumerate(tabela.iter_rows(), start=linha_do_cabecalho + 1):
-        for coluna, valor in enumerate(valores[:-2], start=1):
-            _do_arquivo(ws, linha, coluna, valor)
-        ws.cell(linha, len(titulos) - 1, valores[-2] / 100).number_format = FORMATO_REAIS
-        ws.cell(linha, len(titulos), valores[-1]).number_format = FORMATO_PERCENTUAL
 
 
 def _aviso_na_linha_1(ws, aviso: str | None) -> int:
