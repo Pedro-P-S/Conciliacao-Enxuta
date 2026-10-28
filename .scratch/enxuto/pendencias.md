@@ -4,7 +4,6 @@ Tudo o que os reviews antigos (`review.md`, `review-code-review.md`, `review-bat
 
 ## Conferir à mão
 
-- **O `.xlsx` num Excel de verdade:** as fórmulas do Resumo (lista suspensa, `INDEX`/`MATCH` na `_grafico`) só foram conferidas pelo avaliador de `tests/conftest.py`; falta abrir no Excel e trocar o Batimento na lista.
 - **O `.html` no navegador:** o rótulo do valor no fim da linha, a dica ao passar o mouse e a troca do Batimento na lista.
 
 ## Sugestões que ficaram de fora

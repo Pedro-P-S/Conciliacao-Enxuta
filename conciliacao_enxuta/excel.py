@@ -205,14 +205,16 @@ def _blocos(dados, resultados: list[Resultado], limite: int) -> tuple[int, int]:
     dados.cell(1, 2, "Diferença absoluta")
     dados.cell(1, 4, "Idade da Diferença")
     dados.cell(1, 5, "Diferença absoluta")
-    for k in range(1, altura + 1):
+    # A série só tem as Data-bases, as mesmas em todos os Batimentos: linhas a mais viram datas falsas no eixo
+    datas = max(len(r.historico) for r in resultados)
+    for k in range(1, datas + 1):
         data, absoluta = _busca("J", k, altura, fim), _busca("K", k, altura, fim)
         dados.cell(1 + k, 1, f'=IF({data}="","",{data})').number_format = FORMATO_DATA
         dados.cell(1 + k, 2, f'=IF({absoluta}="",NA(),{absoluta})').number_format = FORMATO_REAIS
     for k in range(1, len(resultados[0].por_idade) + 1):
         dados.cell(1 + k, 4, "=" + _busca("L", k, altura, fim))
         dados.cell(1 + k, 5, "=" + _busca("M", k, altura, fim)).number_format = FORMATO_REAIS
-    return 1 + altura, 1 + len(resultados[0].por_idade)
+    return 1 + datas, 1 + len(resultados[0].por_idade)
 
 
 def _resumo(ws, resultados: list[Resultado], limite: int) -> None:

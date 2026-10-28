@@ -83,6 +83,19 @@ def test_resumo_tem_grafico_de_linha_da_diferenca_absoluta_com_os_dados_na_aba_o
     assert resumo._charts[-1].anchor._from.row > resumo.max_row
 
 
+def test_grafico_de_linha_com_uma_data_base_tem_um_ponto_so_no_excel(tmp_path, capsys):
+    # Sem isto, o Excel completa o eixo com datas que não existem, até a altura do bloco da `_grafico`
+    (tmp_path / "a.csv").write_text("Chave;Data;Valor\n1;30/09/2026;10,00\n", encoding="utf-8")
+    (tmp_path / "b.csv").write_text("Chave;Data;Valor\n1;30/09/2026;12,00\n", encoding="utf-8")
+
+    main(["conciliar", str(tmp_path / "a.csv"), str(tmp_path / "b.csv")])
+
+    wb = openpyxl.load_workbook(capsys.readouterr().out.splitlines()[0])
+    serie = wb["Resumo"]._charts[-1].series[0]
+    assert serie.val.numRef.f == "'_grafico'!$B$2"
+    assert serie.cat.numRef.f == "'_grafico'!$A$2"
+
+
 def test_resumo_tem_grafico_de_barras_da_idade_com_os_dados_ao_lado_dos_da_linha(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
 
