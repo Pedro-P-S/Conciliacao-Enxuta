@@ -1,12 +1,14 @@
 """Resultado → `.html` com o Resumo do Excel, num arquivo só e sem nada buscado na internet.
 
-O único script é o filtro de Batimento, que só existe com mais de um.
+O único script desenha o gráfico da Diferença no tempo, com período e zoom, e, com mais de um Batimento, faz o
+filtro. A Tolerância e as linhas sem Chave ficam só no Excel.
 
 Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
 """
 
 from __future__ import annotations
 
+import json
 from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from pathlib import Path
@@ -20,52 +22,113 @@ from conciliacao_enxuta.excel import (
     TITULO_GRAFICO_DO_HISTORICO,
     TITULO_PROBLEMATICOS,
     TITULOS_POR_ATRIBUTO,
-    TITULOS_SEM_CHAVE,
     avisos,
-    milhar,
     quadro_do_resumo,
     reais,
     rotulo_da_faixa,
 )
 
-# Um tema só: os papéis de cor são tokens em `:root`. O escuro é escolhido, não inversão, e vale pela preferência do
-# sistema ou por `data-theme="dark"`; `data-theme="light"` trava o claro.
+# Um tema só, na identidade do Banrisul: o azul #0094FF domina, o azul escuro #000050 é texto e fundo, o turquesa e o
+# roxo só apoiam. Os papéis de cor são tokens em `:root`. O escuro é escolhido, não inversão, e vale pela preferência
+# do sistema ou por `data-theme="dark"`; `data-theme="light"` trava o claro. As fontes da marca (Exo 2 e Source Sans)
+# são usadas se estiverem instaladas: o arquivo abre sem internet, então não as busca.
 _ESCURO = (
-    "--superficie:#14161a;--cartao:#1e2128;--texto:#ececee;--texto-2:#b4b9c2;--texto-3:#9ba1ac;"
-    "--grade:#3a3f48;--serie-1:#3987e5;"
+    "--superficie:#000050;--cartao:#0c0c66;--texto:#ffffff;--texto-2:#c6cdf5;--texto-3:#a9b2ec;"
+    "--grade:#2c2f86;--serie-1:#0094ff;--painel:#00003a;--painel-borda:#2c2f86;--roxo:#a68bff;"
 )
 ESTILO = (
-    ":root{--superficie:#ffffff;--cartao:#f3f4f6;--texto:#15171a;--texto-2:#4a505a;--texto-3:#5b6370;"
-    "--grade:#d5d8de;--serie-1:#2a78d6;}\n"
+    ":root{--superficie:#ffffff;--cartao:#eef6ff;--texto:#000050;--texto-2:#3b4174;--texto-3:#565c8a;"
+    "--grade:#dbe1ef;--serie-1:#0094ff;--painel:#000050;--painel-borda:#000050;"
+    "--painel-texto:#ffffff;--painel-rotulo:#b9c3f7;--painel-linha:#2a2f80;--foco:#1cd8ca;--roxo:#936ffa;"
+    "--sobre-azul:#000050;}\n"
     '@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){' + _ESCURO + "}}\n"
     ':root[data-theme="dark"]{' + _ESCURO + """}
-body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0 auto; padding: 16px;
-  max-width: 720px; color: var(--texto); background: var(--superficie); }
-h1 { font-size: 22px; margin: 0 0 16px; }
-h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
-select { font: inherit; color: var(--texto); background: var(--cartao); border: 1px solid var(--grade); padding: 6px 8px;
-  margin-bottom: 16px; max-width: 100%; }
-.cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.cartao { background: var(--cartao); border-radius: 8px; padding: 10px 12px; }
-.rotulo { display: block; font-size: 13px; color: var(--texto-2); }
-.valor { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
-th, td { padding: 6px 8px; text-align: left; overflow-wrap: anywhere; border-bottom: 1px solid var(--grade); }
-th { font-weight: 600; color: var(--texto-2); }
-td.n { text-align: right; font-variant-numeric: tabular-nums; }
-p { color: var(--texto-2); font-size: 14px; }
-details { margin-bottom: 8px; font-size: 14px; color: var(--texto-2); }
-svg { display: block; width: 100%; height: auto; font-size: 12px; }
+body { font-family: "Source Sans 3", "Source Sans Pro", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font-size: 17px; line-height: 1.5; margin: 0 auto; padding: 32px 16px 56px; max-width: 760px;
+  color: var(--texto); background: var(--superficie); -webkit-font-smoothing: antialiased; }
+h1, h2, .valor, th { font-family: "Exo 2", "Segoe UI", system-ui, sans-serif; }
+h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; margin: 0; }
+h2 { font-size: 19px; font-weight: 600; margin: 40px 0 12px; }
+.topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
+  margin-bottom: 24px; }
+select { font: inherit; font-weight: 600; color: var(--texto); background: var(--superficie);
+  border: 2px solid var(--serie-1); border-radius: 999px; padding: 6px 16px; max-width: 100%; cursor: pointer; }
+select:focus-visible, summary:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+
+/* O quadro do Resumo: o painel azul-escuro, com um brilho azul no canto e o roxo e o turquesa de apoio */
+.painel { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 24px 20px; padding: 28px;
+  border-radius: 28px 28px 28px 8px; border: 1px solid var(--painel-borda); color: var(--painel-texto);
+  background: radial-gradient(120% 90% at 100% 0%, rgba(0, 148, 255, 0.42), rgba(0, 148, 255, 0) 60%),
+    radial-gradient(60% 70% at 92% 105%, rgba(28, 216, 202, 0.22), rgba(28, 216, 202, 0) 70%),
+    radial-gradient(70% 80% at 0% 100%, rgba(147, 111, 250, 0.38), rgba(147, 111, 250, 0) 70%), var(--painel); }
+.rotulo { display: block; font-size: 15px; color: var(--painel-rotulo); }
+.valor { display: block; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.15; }
+.meta { grid-column: span 6; }
+.meta .valor { font-size: 18px; font-weight: 500; }
+.conta { grid-column: span 2; }
+.conta .valor { font-size: 23px; }
+.destaque, .chaves { border-top: 1px solid var(--painel-linha); padding-top: 22px; }
+.destaque { grid-column: span 4; margin-right: -20px; padding-right: 20px; }  /* a linha de cima sem a falha do vão */
+.destaque .valor { font-size: clamp(34px, 8vw, 46px); font-weight: 700; color: var(--serie-1); letter-spacing: -0.01em; }
+.chaves { grid-column: span 2; }
+.chaves .valor { font-size: clamp(28px, 6vw, 34px); }
+@media (max-width: 560px) {
+  .painel { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 22px; gap: 20px 16px; }
+  .meta, .conta, .destaque, .chaves { grid-column: span 2; }
+  .destaque { margin-right: 0; padding-right: 0; }
+  .chaves { border-top: 0; padding-top: 0; }
+}
+
+.aviso { margin: 16px 0 0; padding: 12px 18px; border-radius: 16px 16px 16px 4px; background: var(--cartao);
+  color: var(--texto); font-size: 16px; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0 0; font-size: 16px; }
+th, td { padding: 9px 10px; text-align: left; overflow-wrap: break-word; border-bottom: 1px solid var(--grade); }
+th { font-size: 15px; font-weight: 600; color: var(--texto-2); border-bottom: 2px solid var(--serie-1); }
+th:first-child, td:first-child { padding-left: 0; }
+th:last-child, td:last-child { padding-right: 0; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 560px) { table { font-size: 15px; } th, td { padding: 8px 6px; } }
+details { margin-top: 8px; font-size: 15px; color: var(--texto-2); }
+summary { cursor: pointer; color: var(--serie-1); font-weight: 600; width: fit-content; border-radius: 4px; }
+svg { display: block; font-family: inherit; }
+svg.idade { width: 100%; max-width: 600px; height: auto; font-size: 10.5px; }
 svg text { fill: var(--texto-2); }
-svg .v { fill: var(--texto); paint-order: stroke; stroke: var(--superficie); stroke-width: 4px; }  /* legível sobre a linha */
+svg .v { fill: var(--texto); font-weight: 600; }
+svg .v, svg .eixo { paint-order: stroke; stroke: var(--superficie); stroke-width: 4px; }  /* legível sobre a linha */
 .grade { stroke: var(--grade); stroke-width: 1; }
 .barra { fill: var(--serie-1); }
-.linha { stroke: var(--serie-1); }
-.ponto { fill: var(--serie-1); stroke: var(--superficie); stroke-width: 2; }
 .alvo { fill: transparent; }
+@media (max-width: 560px) { svg.idade { font-size: 13px; } }  /* no celular o SVG não amplia: a letra fica maior */
+
+/* O gráfico no tempo, desenhado pelo script na largura da tela */
+.cabeca { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  margin: 40px 0 6px; }
+.cabeca h2 { margin: 0; }
+.periodos { display: flex; flex-wrap: wrap; gap: 6px; }
+.periodos button { font: inherit; font-size: 14px; font-weight: 600; color: var(--texto-2); background: transparent;
+  border: 1.5px solid var(--grade); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.periodos button:hover { border-color: var(--serie-1); }
+.periodos button[aria-pressed="true"] { background: var(--serie-1); border-color: var(--serie-1); color: var(--sobre-azul); }
+.periodos button:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+.legenda { margin: 0 0 8px; font-size: 15px; color: var(--texto-2); }
+.ajuda { color: var(--texto-3); }
+.no-tempo { position: relative; }
+.desenho { min-height: 230px; touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+.desenho svg { font-size: 13px; overflow: visible; }
+.tracejada { stroke-dasharray: 2 5; }
+.area { fill: var(--serie-1); fill-opacity: 0.13; }
+.linha { fill: none; stroke: var(--serie-1); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.ponto { fill: var(--serie-1); stroke: var(--superficie); stroke-width: 2.5; }
+.foco { fill: var(--roxo); }
+.mira { stroke: var(--roxo); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.selecao { fill: var(--roxo); fill-opacity: 0.2; }
+.dica { position: absolute; pointer-events: none; white-space: nowrap; padding: 6px 12px; font-size: 14px;
+  color: var(--painel-texto); background: var(--painel); border: 1px solid var(--roxo); border-radius: 12px 12px 12px 4px; }
+.dica span { display: block; font-size: 13px; color: var(--painel-rotulo); }
+.dica strong { font-family: "Exo 2", "Segoe UI", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 """
 )
-# O único script: mostra só o Resumo do Batimento escolhido. Roda também na abertura, para a lista e o Resumo
+# Mostra só o Resumo do Batimento escolhido. Roda também na abertura, para a lista e o Resumo
 # não divergirem quando o navegador devolve a escolha anterior.
 FILTRO = """
 var lista = document.getElementById("batimento");
@@ -75,6 +138,185 @@ function mostrar() {
 lista.onchange = mostrar;
 mostrar();
 """
+# Desenha o gráfico da Diferença absoluta por Data-base na largura da tela, a partir de `data-pontos` (Data-base e
+# centavos). Os botões escolhem o período até a Data-base mais recente; arrastar sobre o gráfico amplia um trecho.
+GRAFICO = r"""
+(function () {
+  var MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  function milhar(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+  function reais(c) {
+    var r = Math.abs(c) % 100;
+    return (c < 0 ? "-" : "") + milhar(Math.floor(Math.abs(c) / 100)) + "," + (r < 10 ? "0" : "") + r;
+  }
+  function curto(c) {  // 1,25 bi, 350 mi, 12 mil: o eixo cabe sem perder a ordem de grandeza
+    var v = c / 100, escalas = [[1e9, " bi"], [1e6, " mi"], [1e3, " mil"], [1, ""]];
+    for (var i = 0; i < escalas.length - 1 && v < escalas[i][0]; i++);
+    return (v / escalas[i][0]).toLocaleString("pt-BR", {maximumFractionDigits: 2}) + escalas[i][1];
+  }
+  function data(d) { return d.split("-").reverse().join("/"); }
+  function dias(a, b) { return (Date.parse(b) - Date.parse(a)) / 864e5; }
+  function passo(bruto) {
+    var p = Math.pow(10, Math.floor(Math.log10(bruto))), f = bruto / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+
+  document.querySelectorAll(".historico").forEach(function (caixa) {
+    var pontos = JSON.parse(caixa.getAttribute("data-pontos"));
+    var desenho = caixa.querySelector(".desenho"), dica = caixa.querySelector(".dica");
+    var periodo = caixa.querySelector(".periodo"), botoes = caixa.querySelectorAll(".periodos button");
+    var ini = 0, fim = pontos.length - 1, geo = null, arraste = null;
+
+    function desenhar() {
+      var largura = desenho.clientWidth;
+      if (!largura || !pontos.length) return;
+      var vis = pontos.slice(ini, fim + 1), n = vis.length;
+      var altura = largura < 480 ? 230 : 290, dir = 12, topo = 28, base = altura - 30;
+      var maior = Math.max.apply(null, vis.map(function (p) { return p[1]; }));
+      var marcas = [0], teto = 1;
+      if (maior > 0) {  // sem Diferença, o eixo só mostra o 0
+        var s = Math.max(1, passo(maior / 5));
+        teto = Math.ceil(maior / s) * s;
+        for (var v = s; v <= teto + s / 2; v += s) marcas.push(v);
+      }
+      var rotulos = marcas.map(curto);
+      var esq = 14 + 7.5 * Math.max.apply(null, rotulos.map(function (r) { return r.length; }));
+      function x(i) { return n > 1 ? esq + i / (n - 1) * (largura - esq - dir) : (esq + largura - dir) / 2; }
+      function y(v) { return base - v / teto * (base - topo); }
+      geo = {esq: esq, dir: dir, largura: largura, n: n, x: x, y: y};
+
+      var svg = ['<svg width="' + largura + '" height="' + altura + '" aria-hidden="true">'];
+      marcas.forEach(function (v, k) {
+        svg.push('<line class="grade' + (v ? " tracejada" : "") + '" x1="' + esq + '" x2="' + (largura - dir) +
+          '" y1="' + y(v) + '" y2="' + y(v) + '"/>');
+        svg.push('<text x="' + (esq - 10) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + rotulos[k] + "</text>");
+      });
+
+      // As datas: por mês num período longo, por dia num curto, só as que cabem
+      var cabem = Math.max(2, Math.floor((largura - esq - dir) / 80)), xs = [], rotulo;
+      if (dias(vis[0][0], vis[n - 1][0]) > 62) {
+        for (var i = 1; i < n; i++) if (vis[i][0].slice(0, 7) !== vis[i - 1][0].slice(0, 7)) xs.push(i);
+        var pulo = Math.ceil(xs.length / cabem);
+        xs = xs.filter(function (_, k) { return k % pulo === 0; });
+        rotulo = function (d) { return MESES[+d.slice(5, 7) - 1] + "/" + d.slice(2, 4); };
+      } else {
+        var m = Math.min(n, cabem);
+        for (var k = 0; k < m; k++) {
+          var j = m > 1 ? Math.round(k * (n - 1) / (m - 1)) : 0;
+          if (xs.indexOf(j) < 0) xs.push(j);
+        }
+        rotulo = function (d) { return d.slice(8, 10) + "/" + d.slice(5, 7); };
+      }
+      xs.forEach(function (i) {
+        var ancora = x(i) > largura - dir - 24 ? "end" : x(i) < esq + 24 && n > 1 ? "start" : "middle";
+        svg.push('<line class="grade" x1="' + x(i) + '" x2="' + x(i) + '" y1="' + base + '" y2="' + (base + 5) + '"/>');
+        svg.push('<text x="' + x(i) + '" y="' + (base + 21) + '" text-anchor="' + ancora + '">' + rotulo(vis[i][0]) + "</text>");
+      });
+
+      var linha = vis.map(function (p, i) { return x(i).toFixed(1) + "," + y(p[1]).toFixed(1); }).join(" ");
+      if (n > 1) {
+        svg.push('<polygon class="area" points="' + x(0) + "," + base + " " + linha + " " + x(n - 1) + "," + base + '"/>');
+        svg.push('<polyline class="linha" points="' + linha + '"/>');
+      }
+      var ultimo = vis[n - 1];  // o valor da última Data-base do período, acima do seu ponto
+      svg.push('<circle class="ponto" cx="' + x(n - 1) + '" cy="' + y(ultimo[1]) + '" r="4.5"/>');
+      svg.push('<text class="v" x="' + Math.min(x(n - 1), largura - dir) + '" y="' + (y(ultimo[1]) - 12) +
+        '" text-anchor="' + (n > 1 ? "end" : "middle") + '">' + reais(ultimo[1]) + "</text>");
+      svg.push('<rect class="selecao" y="' + topo + '" height="' + (base - topo) + '" visibility="hidden"/>');
+      svg.push('<line class="mira" y1="' + topo + '" y2="' + base + '" visibility="hidden"/>');
+      svg.push('<circle class="ponto foco" r="5.5" visibility="hidden"/>');
+      desenho.innerHTML = svg.join("") + "</svg>";
+      dica.hidden = true;
+      periodo.textContent = data(vis[0][0]) + (n > 1 ? " a " + data(vis[n - 1][0]) : "") + ", " + milhar(n) +
+        (n === 1 ? " Data-base." : " Data-bases.");
+    }
+
+    function indice(ev) {
+      if (geo.n < 2) return 0;
+      var px = ev.clientX - desenho.getBoundingClientRect().left;
+      var i = Math.round((px - geo.esq) / (geo.largura - geo.esq - geo.dir) * (geo.n - 1));
+      return Math.max(0, Math.min(geo.n - 1, i));
+    }
+    function marca(classe, atributos) {
+      var el = desenho.querySelector("." + classe);
+      for (var a in atributos) el.setAttribute(a, atributos[a]);
+    }
+    function mostrarDica(i) {
+      var p = pontos[ini + i], cx = geo.x(i), cy = geo.y(p[1]);
+      marca("mira", {x1: cx, x2: cx, visibility: "visible"});
+      marca("foco", {cx: cx, cy: cy, visibility: "visible"});
+      dica.innerHTML = "<span>" + data(p[0]) + "</span><strong>" + reais(p[1]) + "</strong>";
+      dica.hidden = false;
+      dica.style.left = Math.min(Math.max(cx - dica.offsetWidth / 2, 0), geo.largura - dica.offsetWidth) + "px";
+      dica.style.top = Math.max(cy - dica.offsetHeight - 16, 0) + "px";
+    }
+    function esconder() {
+      if (!geo || arraste !== null) return;
+      marca("mira", {visibility: "hidden"});
+      marca("foco", {visibility: "hidden"});
+      dica.hidden = true;
+    }
+    function marcar(ativo) {
+      botoes.forEach(function (b) { b.setAttribute("aria-pressed", String(b === ativo)); });
+    }
+
+    desenho.addEventListener("pointerdown", function (ev) {
+      if (!geo || geo.n < 2) return;
+      arraste = indice(ev);
+      desenho.setPointerCapture(ev.pointerId);
+    });
+    desenho.addEventListener("pointermove", function (ev) {
+      if (!geo) return;
+      var i = indice(ev);
+      mostrarDica(i);
+      if (arraste !== null) {
+        var a = Math.min(arraste, i), b = Math.max(arraste, i);
+        marca("selecao", {x: geo.x(a), width: geo.x(b) - geo.x(a), visibility: "visible"});
+      }
+    });
+    desenho.addEventListener("pointerup", function (ev) {
+      if (arraste === null) return;
+      var i = indice(ev), a = Math.min(arraste, i), b = Math.max(arraste, i), inicio = ini;
+      arraste = null;
+      marca("selecao", {visibility: "hidden"});
+      if (b > a) {  // amplia o trecho arrastado
+        ini = inicio + a;
+        fim = inicio + b;
+        marcar(null);
+        desenhar();
+      }
+    });
+    desenho.addEventListener("pointerleave", esconder);
+    botoes.forEach(function (b) {
+      b.onclick = function () {
+        var limite = +b.getAttribute("data-dias");
+        ini = 0;
+        fim = pontos.length - 1;
+        while (limite && dias(pontos[ini][0], pontos[fim][0]) > limite) ini++;
+        marcar(b);
+        desenhar();
+      };
+    });
+    // Redesenha quando a largura muda, inclusive quando o Batimento escolhido aparece
+    if (window.ResizeObserver) new ResizeObserver(desenhar).observe(desenho);
+    else window.addEventListener("resize", desenhar);
+    desenhar();
+  });
+})();
+"""
+# Os botões de período, até a Data-base mais recente; só aparecem os menores que o histórico
+PERIODOS = ((30, "1 mês"), (90, "3 meses"), (180, "6 meses"), (365, "1 ano"))
+
+
+# Onde cada linha do quadro fica no painel (a Tolerância fica só no Excel): a Data-base em cima, os totais no meio e, embaixo, em
+# destaque, a Diferença absoluta e as Chaves com Diferença
+_LUGAR_NO_PAINEL = {
+    "Data-base mais recente": "meta",
+    "Total A": "conta",
+    "Total B": "conta",
+    "Diferença total": "conta",
+    "Diferença absoluta": "destaque",
+    "Chaves com Diferença": "chaves",
+}
 
 
 def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LIMITE_DE_LINHAS) -> Path:
@@ -86,20 +328,22 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
     """
     caminho = Path(pasta) / f"conciliacao_{resultados[0].data_base.isoformat()}.html"
     total = sum(r.operacoes.height for r in resultados)  # o corte é da aba inteira, como no Excel
-    corpo = _resumo(resultados[0], limite, total)
+    lista, corpo, script = "", _resumo(resultados[0], limite, total), GRAFICO
     if len(resultados) > 1:
         opcoes = "".join(f"<option>{_do_arquivo(r.batimento)}</option>" for r in resultados)
+        lista = f'<select id="batimento" aria-label="Batimento">{opcoes}</select>'
         secoes = "\n".join(
             f"<section{' hidden' if i else ''}>\n{_resumo(r, limite, total)}\n</section>" for i, r in enumerate(resultados)
         )
-        corpo = f'<select id="batimento">{opcoes}</select>\n{secoes}\n<script>{FILTRO}</script>'
+        corpo, script = secoes, FILTRO + GRAFICO
     titulo = f"Conciliação {resultados[0].data_base:%d/%m/%Y}"
     pagina = (
         '<!doctype html>\n<html lang="pt-BR"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{escape(titulo)}</title><style>{ESTILO}</style></head>\n<body>\n<h1>Resumo</h1>\n"
+        f"<title>{escape(titulo)}</title><style>{ESTILO}</style></head>\n<body>\n"
+        f'<header class="topo"><h1>Resumo</h1>{lista}</header>\n'
         + corpo
-        + "\n</body></html>\n"
+        + f"\n<script>{script}</script>\n</body></html>\n"
     )
     caminho.write_text(pagina, encoding="utf-8")
     return caminho
@@ -107,23 +351,17 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
 
 def _resumo(resultado: Resultado, limite: int, total_de_operacoes: int) -> str:
     """O Resumo de um Batimento: o quadro, os avisos, os Atributos Problemáticos e os dois gráficos."""
-    partes = ['<div class="cartoes">']
+    partes = ['<div class="painel">']
     partes += [
-        f'<div class="cartao"><span class="rotulo">{escape(rotulo)}</span><span class="valor">{escape(texto)}</span></div>'
+        f'<div class="{_LUGAR_NO_PAINEL[rotulo]}"><span class="rotulo">{escape(rotulo)}</span>'
+        f'<span class="valor">{escape(texto)}</span></div>'
         for rotulo, _, _, texto in quadro_do_resumo(resultado)
+        if rotulo in _LUGAR_NO_PAINEL
     ]
     partes.append("</div>")
 
-    # Avisos, só quando acontecem
-    if resultado.sem_chave_a.linhas or resultado.sem_chave_b.linhas:
-        partes.append(_cabecalho(TITULOS_SEM_CHAVE))
-        for base, sem_chave in [("Base A", resultado.sem_chave_a), ("Base B", resultado.sem_chave_b)]:
-            partes.append(
-                f'<tr><td>{base}</td><td class="n">{milhar(sem_chave.linhas)}</td>'
-                f'<td class="n">{reais(sem_chave.soma)}</td></tr>'
-            )
-        partes.append("</table>")
-    partes += [f"<p>{escape(aviso)}</p>" for aviso in avisos(resultado, limite, total_de_operacoes)]
+    # Avisos, só quando acontecem; as linhas sem Chave ficam só no Excel
+    partes += [f'<p class="aviso">{escape(aviso)}</p>' for aviso in avisos(resultado, limite, total_de_operacoes)]
 
     # Os Atributos Problemáticos; sem Atributo acima do peso, a tabela não aparece
     if resultado.atributos_problematicos.height:
@@ -173,7 +411,7 @@ def _grafico_de_barras(resultado: Resultado) -> str:
     maior = max((absoluta for _, absoluta in faixas), default=0) or 1
     altura = len(faixas) * linha
     titulo = escape(TITULO_GRAFICO_DA_IDADE)
-    svg = [f'<svg viewBox="0 0 {largura} {altura}" width="100%" role="img" aria-label="{titulo}">']
+    svg = [f'<svg class="idade" viewBox="0 0 {largura} {altura}" width="100%" role="img" aria-label="{titulo}">']
     for i, (rotulo, absoluta) in enumerate(faixas):
         y, w = i * linha, round(absoluta / maior * maxima)
         dica = escape(f"{rotulo}: {reais(absoluta)}")
@@ -192,41 +430,28 @@ def _grafico_de_barras(resultado: Resultado) -> str:
 
 
 def _grafico_de_linha(resultado: Resultado) -> str:
-    """A Diferença absoluta por Data-base, com a primeira e a última data no eixo e o maior valor no topo."""
-    largura, esquerda, topo, altura, direita = 340, 92, 24, 180, 12  # o topo deixa lugar ao valor do fim da linha
+    """A Diferença absoluta por Data-base: os pontos vão em `data-pontos` e o script desenha o gráfico."""
     historico = resultado.historico
-    maior = max((absoluta for _, absoluta in historico), default=0)
-    passo = (largura - esquerda - direita) / max(len(historico) - 1, 1)
-    pontos = [
-        (esquerda + i * passo, topo + altura - absoluta / (maior or 1) * altura)
-        for i, (_, absoluta) in enumerate(historico)
-    ]
-    base, fim = topo + altura, largura - direita
     titulo = escape(TITULO_GRAFICO_DO_HISTORICO)
-    svg = [
-        f'<svg viewBox="0 0 {largura} {base + 28}" width="100%" role="img" aria-label="{titulo}">',
-        f'<line class="grade" x1="{esquerda}" y1="{topo}" x2="{fim}" y2="{topo}"/>',
-        f'<line class="grade" x1="{esquerda}" y1="{base}" x2="{fim}" y2="{base}"/>',
-    ]
-    # Sem Diferença, o eixo só mostra o 0, como no Excel
-    if maior:
-        svg.append(f'<text x="{esquerda - 6}" y="{topo + 4}" text-anchor="end">{reais(maior)}</text>')
-    svg.append(f'<text x="{esquerda - 6}" y="{base + 4}" text-anchor="end">0,00</text>')
-    if len(historico) > 1:
-        lista = " ".join(f"{x:.1f},{y:.1f}" for x, y in pontos)
-        svg.append(f'<polyline class="linha" points="{lista}" fill="none" stroke-width="2" stroke-linejoin="round"/>')
-    # A dica vale em todo ponto, mas só o último aparece: com muitas Data-bases, um ponto em cada uma esconde a linha
-    for i, ((data, absoluta), (x, y)) in enumerate(zip(historico, pontos), start=1):
-        dica = escape(f"{data:%d/%m/%Y}: {reais(absoluta)}")
-        ponto = f'<circle class="ponto" cx="{x:.1f}" cy="{y:.1f}" r="4"/>' if i == len(historico) else ""
-        svg.append(f'<g><title>{dica}</title><circle class="alvo" cx="{x:.1f}" cy="{y:.1f}" r="12"/>{ponto}</g>')
-    if historico:  # o valor no fim da linha, acima do último ponto e alinhado à direita para não cortar
-        x, y = pontos[-1]
-        svg.append(f'<text class="v" x="{min(x, fim):.1f}" y="{y - 10:.1f}" text-anchor="end">{reais(historico[-1][1])}</text>')
-        # A primeira data; com uma Data-base só, ela aparece uma vez
-        svg.append(f'<text x="{esquerda}" y="{base + 20}">{historico[0][0]:%d/%m/%Y}</text>')
-    if len(historico) > 1:
-        svg.append(f'<text x="{fim}" y="{base + 20}" text-anchor="end">{historico[-1][0]:%d/%m/%Y}</text>')
-    svg.append("</svg>")
+    pontos = escape(json.dumps([[data.isoformat(), absoluta] for data, absoluta in historico]))
+    extensao = (historico[-1][0] - historico[0][0]).days if historico else 0
+    botoes = "".join(
+        f'<button type="button" data-dias="{dias}" aria-pressed="false">{rotulo}</button>'
+        for dias, rotulo in PERIODOS
+        if dias < extensao
+    )
+    if botoes:
+        botoes = (
+            f'<div class="periodos" role="group" aria-label="Período">{botoes}'
+            '<button type="button" data-dias="0" aria-pressed="true">Tudo</button></div>'
+        )
+    ajuda = ' <span class="ajuda">Arraste sobre o gráfico para ampliar um período.</span>' if len(historico) > 1 else ""
     dados = _dados_do_grafico(("Data-base", "Diferença absoluta"), [(f"{d:%d/%m/%Y}", reais(a)) for d, a in historico])
-    return f"<h2>{titulo}</h2>\n" + "\n".join(svg) + "\n" + dados
+    return (
+        f'<div class="historico" data-pontos="{pontos}">\n'
+        f'<div class="cabeca"><h2>{titulo}</h2>{botoes}</div>\n'
+        f'<p class="legenda"><span class="periodo"></span>{ajuda}</p>\n'
+        f'<div class="no-tempo"><div class="desenho" role="img" aria-label="{titulo}"></div>'
+        '<div class="dica" hidden></div></div>\n'
+        f"</div>\n{dados}"
+    )

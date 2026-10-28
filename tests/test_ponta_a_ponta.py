@@ -15,7 +15,7 @@ from conftest import ler_base
 
 FORMATO_REAIS = "#,##0.00"
 FORMATO_PERCENTUAL = "0.00%"
-CABECALHO_POR_ATRIBUTO = ["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"]
+CABECALHO_POR_ATRIBUTO = ["Atributo", "Valor", "Diferença absoluta", "Concentração desproporcional da diferença"]
 TITULO_PROBLEMATICOS = "Atributos Problemáticos"
 ABAS = ["Resumo", "Por Tipo do Erro", "Por Atributo", "Operações com Diferença", "Erros"]
 

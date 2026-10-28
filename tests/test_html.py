@@ -1,5 +1,6 @@
 """Seam 2: arquivos → CLI → `.html` com o Resumo, lido com o `html.parser` da biblioteca padrão."""
 
+import json
 from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
@@ -79,7 +80,6 @@ def test_html_traz_o_quadro_do_resumo_com_os_totais_do_gabarito_em_reais(tmp_pat
     textos = ler_html(linhas[1]).textos
     quadro = {
         "Data-base mais recente": f"{gabarito.data_base:%d/%m/%Y}",
-        "Tolerância": "1,00",
         "Total A": reais(gabarito.total_a),
         "Total B": reais(gabarito.total_b),
         "Diferença total": reais(gabarito.diferenca_total),
@@ -88,6 +88,7 @@ def test_html_traz_o_quadro_do_resumo_com_os_totais_do_gabarito_em_reais(tmp_pat
     }
     for rotulo, valor in quadro.items():
         assert textos[textos.index(rotulo) + 1] == valor
+    assert "Tolerância" not in textos  # fica só no Excel
 
 
 def depois(textos: list[str], rotulo: str, quantos: int) -> list[str]:
@@ -96,18 +97,13 @@ def depois(textos: list[str], rotulo: str, quantos: int) -> list[str]:
     return textos[inicio : inicio + quantos]
 
 
-def test_html_traz_os_avisos_de_linhas_sem_chave_e_de_linhas_rejeitadas_depois_do_quadro(tmp_path, capsys):
+def test_html_traz_o_aviso_de_linhas_rejeitadas_depois_do_quadro_e_nao_as_linhas_sem_chave(tmp_path, capsys):
     gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
 
     textos = ler_html(linhas[1]).textos
-    titulo = "Linhas sem Chave, fora do cruzamento"
-    assert depois(textos, titulo, 8) == [
-        "Linhas", "Soma",
-        "Base A", str(gabarito.sem_chave_a.linhas), reais(gabarito.sem_chave_a.soma),
-        "Base B", str(gabarito.sem_chave_b.linhas), reais(gabarito.sem_chave_b.soma),
-    ]
     rejeitadas = f"Linhas rejeitadas: {len(gabarito.rejeitadas)} (veja a aba Erros)"
-    assert textos.index("Chaves com Diferença") < textos.index(titulo) < textos.index(rejeitadas)
+    assert textos.index("Chaves com Diferença") < textos.index(rejeitadas)
+    assert gabarito.sem_chave_a.linhas and "Linhas sem Chave, fora do cruzamento" not in textos  # só no Excel
 
 
 def test_sem_avisos_o_html_nao_tem_aviso(tmp_path, capsys):
@@ -152,7 +148,7 @@ def test_html_traz_os_atributos_problematicos_do_gabarito_depois_dos_avisos(tmp_
 
     textos = ler_html(linhas[1]).textos
     titulo = "Atributos Problemáticos"
-    esperado = ["Atributo", "Valor", "Diferença absoluta", "Diferença acima do peso"]
+    esperado = ["Atributo", "Valor", "Diferença absoluta", "Concentração desproporcional da diferença"]
     for atributo, valor, absoluta, acima in gabarito.por_atributo[:5]:
         esperado += [atributo, valor, reais(absoluta), f"{acima * 100:.2f}%".replace(".", ",")]
     assert depois(textos, titulo, len(esperado)) == esperado
@@ -185,10 +181,10 @@ def test_html_traz_os_dois_graficos_em_svg_com_os_rotulos_da_idade_iguais_aos_do
     assert textos.index("Atributos Problemáticos") < textos.index(barras) < textos.index(no_tempo)
     inicio = textos.index(barras)
     assert [t for t in textos[inicio : textos.index(no_tempo)] if t in rotulos_do_excel] == rotulos_do_excel
-    assert [tag for tag, _ in leitor.tags].count("svg") == 4  # 2 por Batimento
-    # A linha tem um ponto por Data-base comum
-    pontos = next(attrs["points"] for tag, attrs in leitor.tags if tag == "polyline")
-    assert len(pontos.split()) == len(gabarito.historico)
+    assert [tag for tag, _ in leitor.tags].count("svg") == 2  # as barras, uma por Batimento; a linha o script desenha
+    # O gráfico no tempo leva um ponto por Data-base comum
+    pontos = next(attrs["data-pontos"] for tag, attrs in leitor.tags if attrs.get("class") == "historico")
+    assert len(json.loads(pontos)) == len(gabarito.historico)
 
 
 def conciliar_csv(tmp_path, capsys, linhas_a: str, linhas_b: str):
@@ -215,40 +211,47 @@ def test_o_percentual_do_html_arredonda_como_o_excel(tmp_path, capsys):
     assert depois(ler_html(html).textos, "X", 2) == ["10,00", "90,63%"]
 
 
-def textos_do_grafico_de_linha(textos: list[str]) -> list[str]:
-    """Os textos do gráfico da Diferença absoluta por Data-base, o último do `.html`, sem o título."""
-    return textos[textos.index("Diferença absoluta por Data-base") + 1 :]
+def grafico_no_tempo(html) -> tuple[list, list[tuple[str, str]], list[str]]:
+    """Do primeiro gráfico no tempo: os pontos, os botões de período (texto e `aria-pressed`) e os textos dele."""
+    leitor = ler_html(html)
+    pontos = next(json.loads(a["data-pontos"]) for _, a in leitor.tags if a.get("class") == "historico")
+    botoes = [a for t, a in leitor.tags if t == "button"]
+    textos = leitor.textos[leitor.textos.index("Diferença absoluta por Data-base") + 1 :]
+    return pontos, [(b["data-dias"], b["aria-pressed"]) for b in botoes], textos
 
 
-def test_sem_diferenca_o_eixo_do_grafico_mostra_0(tmp_path, capsys):
-    linhas = "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n"
-    _, html = conciliar_csv(tmp_path, capsys, linhas, linhas)
-
-    assert textos_do_grafico_de_linha(ler_html(html).textos) == ["0,00", "0,00", "29/09/2026", "30/09/2026"]  # eixo e valor no fim da linha
-
-
-def test_o_grafico_de_linha_traz_o_valor_no_fim_da_linha_so_no_ultimo_ponto(tmp_path, capsys):
-    cab = "Chave,Data,Valor" + chr(10)
+def test_o_grafico_no_tempo_leva_a_diferenca_absoluta_de_cada_data_base_em_centavos(tmp_path, capsys):
     _, html = conciliar_csv(
-        tmp_path,
-        capsys,
-        cab + "1,2026-09-29,10.00" + chr(10) + "1,2026-09-30,10.00",
-        cab + "1,2026-09-29,7.50" + chr(10) + "1,2026-09-30,5.00",
+        tmp_path, capsys,
+        "Chave,Data,Valor\n1,2026-09-29,10.00\n1,2026-09-30,10.00\n",
+        "Chave,Data,Valor\n1,2026-09-29,7.50\n1,2026-09-30,5.00\n",
     )
 
-    textos = textos_do_grafico_de_linha(ler_html(html).textos)
+    pontos, botoes, textos = grafico_no_tempo(html)
 
-    assert textos == ["5,00", "0,00", "5,00", "29/09/2026", "30/09/2026"]  # o 2,50 do primeiro ponto não é rotulado
+    assert pontos == [["2026-09-29", 250], ["2026-09-30", 500]]
+    assert botoes == []  # um dia de histórico: nenhum período menor que ele
+    assert "Arraste sobre o gráfico para ampliar um período." in textos
 
 
-def test_com_uma_data_base_so_o_grafico_de_linha_traz_o_ponto_e_a_data_uma_vez(tmp_path, capsys):
+def test_os_botoes_de_periodo_sao_os_menores_que_o_historico_e_comeca_em_tudo(tmp_path, capsys):
+    _, linhas = conciliar_exemplo(tmp_path, capsys)  # 01/04 a 30/09: 182 dias
+
+    _, botoes, textos = grafico_no_tempo(linhas[1])
+
+    assert botoes == [("30", "false"), ("90", "false"), ("180", "false"), ("0", "true")] * 2  # 2 Batimentos
+    assert textos[:4] == ["1 mês", "3 meses", "6 meses", "Tudo"]
+
+
+def test_com_uma_data_base_so_o_grafico_no_tempo_nao_tem_periodo_nem_zoom(tmp_path, capsys):
     _, html = conciliar_csv(
         tmp_path, capsys, "Chave,Data,Valor\n1,2026-09-30,10.00\n", "Chave,Data,Valor\n1,2026-09-30,15.00\n"
     )
 
-    leitor = ler_html(html)
-    assert textos_do_grafico_de_linha(leitor.textos) == ["5,00", "0,00", "5,00", "30/09/2026"]
-    assert "circle" in [tag for tag, _ in leitor.tags]
+    pontos, botoes, textos = grafico_no_tempo(html)
+
+    assert pontos == [["2026-09-30", 500]]
+    assert botoes == [] and not any(t.startswith("Arraste") for t in textos)
 
 
 def test_atributo_com_caractere_de_controle_sai_sem_ele_e_com_menor_e_comercial_e_aspas_sai_como_texto(
@@ -271,11 +274,13 @@ def test_atributo_com_caractere_de_controle_sai_sem_ele_e_com_menor_e_comercial_
 UM_BATIMENTO = ("Chave,Data,Valor\n1,2026-09-30,10.00\n", "Chave,Data,Valor\n1,2026-09-30,15.00\n")
 
 
-def test_com_um_batimento_o_html_nao_tem_lista_nem_script_nem_aponta_para_fora(tmp_path, capsys):
+def test_com_um_batimento_o_html_nao_tem_lista_e_o_unico_script_e_o_do_grafico(tmp_path, capsys):
     _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
 
     leitor = ler_html(html)
-    assert not {"script", "select", "section"} & {tag for tag, _ in leitor.tags}
+    assert not {"select", "section"} & {tag for tag, _ in leitor.tags}
+    assert [tag for tag, _ in leitor.tags].count("script") == 1
+    assert "batimento" not in Path(html).read_text(encoding="utf-8")  # sem o filtro
     assert "url(" not in Path(html).read_text(encoding="utf-8")
 
 
@@ -328,10 +333,10 @@ def test_html_tem_um_tema_so_com_as_cores_em_tokens_e_os_temas_claro_e_escuro_de
     texto = Path(html).read_text(encoding="utf-8")
     estilo = texto[texto.index("<style>") : texto.index("</style>")]
     assert texto.count("<style>") == 1
-    assert "--serie-1:#2a78d6" in estilo.replace(" ", "")
+    assert "--serie-1:#0094ff" in estilo.replace(" ", "")
     escuro = estilo[estilo.index("prefers-color-scheme: dark") :]
     assert ':root:not([data-theme="light"])' in escuro and ':root[data-theme="dark"]' in escuro
-    assert escuro.replace(" ", "").count("--serie-1:#3987e5") == 2
+    assert escuro.replace(" ", "").count("--serie-1:#0094ff") == 2
     assert "background:var(--superficie)" in estilo.replace(" ", "")
     # Fora do `<style>` nenhuma cor escrita: tudo vem dos tokens
     assert "#" not in texto[texto.index("</style>") :].replace('href="#', "").replace('"#', "").replace("&#", "")
@@ -347,11 +352,10 @@ def test_html_traz_a_tabela_dos_dados_dos_graficos_e_a_dica_de_cada_barra_e_de_c
     leitor = ler_html(html)
     assert leitor.dados.count("Diferença absoluta") == 2  # um cabeçalho por tabela
     assert depois(leitor.dados, "Data-base", 5)[1:] == ["29/09/2026", "2,50", "30/09/2026", "5,00"]
-    assert ["29/09/2026: 2,50", "30/09/2026: 5,00"] == [d for d in leitor.dicas if d[:2] in ("29", "30")]
-    assert len(leitor.dicas) == 5 + 2  # 5 faixas e 2 Data-bases
+    assert len(leitor.dicas) == 5  # as 5 faixas; as dicas do gráfico no tempo o script mostra
 
 
-def test_as_marcas_seguem_as_regras_barra_arredondada_so_na_ponta_linha_de_2px_ponto_com_anel_e_sem_borda(
+def test_a_barra_e_arredondada_so_na_ponta_e_sem_borda(
     tmp_path, capsys
 ):
     _, html = conciliar_csv(
@@ -361,11 +365,8 @@ def test_as_marcas_seguem_as_regras_barra_arredondada_so_na_ponta_linha_de_2px_p
     )
 
     leitor = ler_html(html)
-    marcas = {classe: [a for t, a in leitor.tags if a.get("class") == classe] for classe in ("barra", "linha", "ponto")}
+    marcas = {classe: [a for t, a in leitor.tags if a.get("class") == classe] for classe in ("barra",)}
     assert len(marcas["barra"]) == 1  # só a faixa com Diferença tem barra visível
-    assert marcas["linha"][0]["stroke-width"] == "2" and marcas["linha"][0]["stroke-linejoin"] == "round"
-    # Só o último ponto aparece: com muitas Data-bases, um ponto em cada uma esconde a linha
-    assert len(marcas["ponto"]) == 1 and all(float(a["r"]) >= 4 for a in marcas["ponto"])
     # A barra é um caminho com 4px arredondados na ponta, e 24px de espessura no máximo
     assert " a4,4 " in marcas["barra"][0]["d"] and 0 < float(marcas["barra"][0]["data-h"]) <= 24
     assert all("stroke" not in a for a in marcas["barra"])
@@ -375,7 +376,7 @@ def test_o_svg_escala_com_a_largura_da_tela_e_cabe_em_375px(tmp_path, capsys):
     _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
 
     svgs = [a for tag, a in ler_html(html).tags if tag == "svg"]
-    assert len(svgs) == 2
+    assert len(svgs) == 1  # o das barras; o gráfico no tempo é desenhado na largura da tela
     for a in svgs:
         largura = float(a["viewbox"].split()[2])
         assert a["width"] == "100%" and largura <= 375 - 2 * 16
