@@ -14,17 +14,17 @@ Regras da skill `dataviz` que valem aqui:
 
 **Blocked by:** 42
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] O `.html` tem um tema só, com as cores em tokens e os temas claro e escuro declarados como acima.
-- [ ] Teste de ponta a ponta: os números, os rótulos, os percentuais, os gráficos e a ordem do Resumo continuam iguais ao Excel (os testes de `test_html` seguem passando); o arquivo continua único, com o filtro como único script e nada buscado fora.
-- [ ] Teste de ponta a ponta: o `.html` traz a tabela dos dados dos gráficos e as dicas das marcas.
-- [ ] Marcas e rótulos conforme as regras acima (barra <= 24px com 4px na ponta, linha de 2px, ponto de 8px com anel, sem borda em marca, rótulos só nas pontas).
-- [ ] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
-- [ ] Teste com olhos de usuário: rodar a CLI sobre `exemplo\`, abrir o `.html` no navegador nos temas claro e escuro e em 375px de largura, passar o mouse nas barras e nos pontos, trocar o Batimento e conferir que nada corta, sobrepõe ou rola na horizontal.
+- [x] O `.html` tem um tema só, com as cores em tokens e os temas claro e escuro declarados como acima.
+- [x] Teste de ponta a ponta: os números, os rótulos, os percentuais, os gráficos e a ordem do Resumo continuam iguais ao Excel (os testes de `test_html` seguem passando); o arquivo continua único, com o filtro como único script e nada buscado fora.
+- [x] Teste de ponta a ponta: o `.html` traz a tabela dos dados dos gráficos e as dicas das marcas.
+- [x] Marcas e rótulos conforme as regras acima (barra <= 24px com 4px na ponta, linha de 2px, ponto de 8px com anel, sem borda em marca, rótulos só nas pontas).
+- [x] `C:\Users\josef\Projetos\Conciliacao-Enxuta\.venv\Scripts\python -m pytest -q` passa.
+- [x] Teste com olhos de usuário: rodar a CLI sobre `exemplo\`, abrir o `.html` no navegador nos temas claro e escuro e em 375px de largura, passar o mouse nas barras e nos pontos, trocar o Batimento e conferir que nada corta, sobrepõe ou rola na horizontal.
 
 **Notas de entrega:**
-(preencher na entrega)
+Seams pela spec: o de ponta a ponta (CLI -> `.html`), o mesmo de `tests/test_html.py`, sem seam nova. `html.py` tem um `<style>` com tokens em `:root` (superficie, cartao, texto, texto-2, texto-3, grade, serie-1 `#2a78d6`), o escuro em `@media (prefers-color-scheme: dark)` com `:root:not([data-theme="light"])` e em `:root[data-theme="dark"]` (serie-1 `#3987e5`), e `body` com fundo explicito. O quadro virou cartoes de numero; os titulos dos graficos viraram `<h2>`; os dois graficos sao SVG com `viewBox` de 340 de largura e `width="100%"`; barras de 16px com 4px so na ponta e base reta, linha de 2px com juncao redonda, pontos r=4 com anel na cor da superficie, grade de 1px, dica `<title>` por barra e por ponto com alvo maior, e uma tabela dos dados em `<details>` sob cada grafico. Sem legenda; texto so nos tokens de texto; so a serie 1 como cor, entao sem `validate_palette.js`. Pulado: o valor no fim da linha (o eixo ja mostra o maximo e o zero). Verificado no navegador: 375px sem rolagem horizontal (checado por JS) e os dois temas; o pane do navegador e estreito demais para um screenshot fiel a 375px. Arquivos: `conciliacao_enxuta/html.py`, `tests/test_html.py` (o leitor guarda dicas e tabela de dados a parte; 4 testes novos).
 
 **Onde está agora (depois da entrega):**
-(preencher na entrega)
+`conciliacao_enxuta/html.py` (`ESTILO`, `_resumo`, `_dados_do_grafico`, `_grafico_de_barras`, `_grafico_de_linha`) e `tests/test_html.py`. Suite inteira: 305 passam.
