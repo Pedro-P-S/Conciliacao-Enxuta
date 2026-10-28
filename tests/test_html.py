@@ -364,7 +364,8 @@ def test_as_marcas_seguem_as_regras_barra_arredondada_so_na_ponta_linha_de_2px_p
     marcas = {classe: [a for t, a in leitor.tags if a.get("class") == classe] for classe in ("barra", "linha", "ponto")}
     assert len(marcas["barra"]) == 1  # só a faixa com Diferença tem barra visível
     assert marcas["linha"][0]["stroke-width"] == "2" and marcas["linha"][0]["stroke-linejoin"] == "round"
-    assert len(marcas["ponto"]) == 2 and all(float(a["r"]) >= 4 for a in marcas["ponto"])
+    # Só o último ponto aparece: com muitas Data-bases, um ponto em cada uma esconde a linha
+    assert len(marcas["ponto"]) == 1 and all(float(a["r"]) >= 4 for a in marcas["ponto"])
     # A barra é um caminho com 4px arredondados na ponta, e 24px de espessura no máximo
     assert " a4,4 " in marcas["barra"][0]["d"] and 0 < float(marcas["barra"][0]["data-h"]) <= 24
     assert all("stroke" not in a for a in marcas["barra"])

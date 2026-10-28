@@ -1,10 +1,6 @@
 # Pendências dos reviews
 
-Tudo o que os reviews antigos (`review.md`, `review-code-review.md`, `review-batimentos.md`) e o briefing da auditoria pediam e a spec responde foi feito. O que sobrou está aqui: o que não dá para conferir sem um humano e as sugestões que ficaram de fora, com o motivo.
-
-## Conferir à mão
-
-- **O `.html` no navegador:** o rótulo do valor no fim da linha, a dica ao passar o mouse e a troca do Batimento na lista.
+Tudo o que os reviews antigos (`review.md`, `review-code-review.md`, `review-batimentos.md`) e o briefing da auditoria pediam e a spec responde foi feito, e o `.xlsx` e o `.html` foram conferidos no Excel 16 e no navegador em 28/10/2026. O que sobrou são as sugestões que ficaram de fora, com o motivo.
 
 ## Sugestões que ficaram de fora
 

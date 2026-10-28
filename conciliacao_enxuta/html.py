@@ -57,7 +57,7 @@ p { color: var(--texto-2); font-size: 14px; }
 details { margin-bottom: 8px; font-size: 14px; color: var(--texto-2); }
 svg { display: block; width: 100%; height: auto; font-size: 12px; }
 svg text { fill: var(--texto-2); }
-svg .v { fill: var(--texto); }
+svg .v { fill: var(--texto); paint-order: stroke; stroke: var(--superficie); stroke-width: 4px; }  /* legível sobre a linha */
 .grade { stroke: var(--grade); stroke-width: 1; }
 .barra { fill: var(--serie-1); }
 .linha { stroke: var(--serie-1); }
@@ -215,12 +215,11 @@ def _grafico_de_linha(resultado: Resultado) -> str:
     if len(historico) > 1:
         lista = " ".join(f"{x:.1f},{y:.1f}" for x, y in pontos)
         svg.append(f'<polyline class="linha" points="{lista}" fill="none" stroke-width="2" stroke-linejoin="round"/>')
-    for (data, absoluta), (x, y) in zip(historico, pontos):
+    # A dica vale em todo ponto, mas só o último aparece: com muitas Data-bases, um ponto em cada uma esconde a linha
+    for i, ((data, absoluta), (x, y)) in enumerate(zip(historico, pontos), start=1):
         dica = escape(f"{data:%d/%m/%Y}: {reais(absoluta)}")
-        svg.append(
-            f'<g><title>{dica}</title><circle class="alvo" cx="{x:.1f}" cy="{y:.1f}" r="12"/>'
-            f'<circle class="ponto" cx="{x:.1f}" cy="{y:.1f}" r="4"/></g>'
-        )
+        ponto = f'<circle class="ponto" cx="{x:.1f}" cy="{y:.1f}" r="4"/>' if i == len(historico) else ""
+        svg.append(f'<g><title>{dica}</title><circle class="alvo" cx="{x:.1f}" cy="{y:.1f}" r="12"/>{ponto}</g>')
     if historico:  # o valor no fim da linha, acima do último ponto e alinhado à direita para não cortar
         x, y = pontos[-1]
         svg.append(f'<text class="v" x="{min(x, fim):.1f}" y="{y - 10:.1f}" text-anchor="end">{reais(historico[-1][1])}</text>')
