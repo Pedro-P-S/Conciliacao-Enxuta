@@ -238,8 +238,8 @@ def _centavos_de(tipo: pl.DataType) -> pl.Expr:
     return pl.lit(None, dtype=pl.Int64).alias("Valor")
 
 
-def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """A base e as Linhas rejeitadas de um Batimento: `df` já tem `Chave`, `Data` e `Valor`."""
+def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame, pl.DataFrame, pl.Series]:
+    """A base, as Linhas rejeitadas e as Datas do arquivo de um Batimento: `df` já tem `Chave`, `Data` e `Valor`."""
     df = _tipo_lido(df)
     para_ler = _valor_float_em_texto(df)
     base = para_ler.select(
@@ -274,7 +274,8 @@ def _ler_um(df: pl.DataFrame, extensao: str, vazias: int) -> tuple[pl.DataFrame,
     # shortcut: Python linha a linha, só nas Linhas rejeitadas; vetorizar se elas passarem de milhares
     em_reais = rejeitadas["Lido"].map_elements(reais, return_dtype=pl.String)
     rejeitadas = rejeitadas.with_columns(pl.coalesce(em_reais, pl.col("Valor")).alias("Valor")).drop("Lido")
-    return base.filter(~rejeitada & ~toda_vazia), rejeitadas
+    # As Datas contam mesmo quando o Valor rejeitou a linha: a Data-base é a do arquivo, não a do Batimento
+    return base.filter(~rejeitada & ~toda_vazia), rejeitadas, base.filter(~toda_vazia)["Data"].drop_nulls()
 
 
 class Leitura(NamedTuple):
@@ -284,6 +285,7 @@ class Leitura(NamedTuple):
     coluna: str  # o cabeçalho como está no arquivo (`Valor Juros`)
     base: pl.DataFrame
     rejeitadas: pl.DataFrame
+    datas: pl.Series  # as Datas legíveis do arquivo, com as linhas que o Valor rejeitou
 
 
 def ler_batimentos(caminho: str | Path) -> dict[str, Leitura]:
@@ -334,8 +336,8 @@ def ler_batimentos(caminho: str | Path) -> dict[str, Leitura]:
     for coluna in valores:
         nome = _normalizado(coluna)
         limpa = coluna.lstrip("﻿").strip()
-        base, rejeitadas = _ler_um(_renomear_colunas(lido, coluna), extensao, vazias)
-        batimentos[nome] = Leitura(limpa[6:].strip() if nome != "valor" else "Valor", limpa, base, rejeitadas)
+        base, rejeitadas, datas = _ler_um(_renomear_colunas(lido, coluna), extensao, vazias)
+        batimentos[nome] = Leitura(limpa[6:].strip() if nome != "valor" else "Valor", limpa, base, rejeitadas, datas)
     return batimentos
 
 

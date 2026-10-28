@@ -1345,3 +1345,27 @@ def test_escolhendo_cada_batimento_o_resumo_mostra_o_quadro_e_os_graficos_dele(t
         assert quadro["Diferença absoluta"] == absoluta and quadro["Chaves com Diferença"] == 1
         assert dados["B2"].value == absoluta  # a série da linha: a Data-base única
         assert sum(v for v in (c[0].value for c in dados["E2:E6"])) == absoluta  # as barras somam a Diferença absoluta
+
+
+def test_data_base_e_a_mesma_para_todos_os_batimentos_mesmo_se_as_linhas_da_data_caem_pelo_valor(tmp_path):
+    base_a, base_b = tmp_path / "a.csv", tmp_path / "b.csv"
+    # Em 30/09 todas as linhas do Juros caem pelo Valor vazio; 01/10 só está na Base A e 02/10 só na B
+    base_a.write_text(
+        "Chave,Data,Valor Juros,Valor Receita\n1,2026-09-29,10.00,100.00\n1,2026-09-30,,100.00\n1,2026-10-01,1.00,1.00\n",
+        encoding="utf-8",
+    )
+    base_b.write_text(
+        "Chave,Data,Valor Juros,Valor Receita\n1,2026-09-29,10.00,100.00\n1,2026-09-30,,100.00\n1,2026-10-02,1.00,1.00\n",
+        encoding="utf-8",
+    )
+
+    juros, receita = conciliar_batimentos(base_a, base_b, TOLERANCIA_PADRAO)[0]
+
+    assert juros.data_base == receita.data_base == date(2026, 9, 30)
+    assert juros.historico == ((date(2026, 9, 29), 0), (date(2026, 9, 30), 0))
+    assert (juros.data_bases_so_em_a, juros.data_bases_so_em_b) == (
+        (date(2026, 10, 1),),
+        (date(2026, 10, 2),),
+    )
+    assert juros.data_bases_so_em_a == receita.data_bases_so_em_a
+    assert (juros.total_a, juros.total_b, juros.chaves_com_diferenca) == (0, 0, 0)

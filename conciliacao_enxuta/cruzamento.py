@@ -337,17 +337,22 @@ def conciliar(
     tolerancia: int,
     rejeitadas_a: pl.DataFrame | None = None,
     rejeitadas_b: pl.DataFrame | None = None,
+    datas_a: pl.Series | None = None,
+    datas_b: pl.Series | None = None,
 ) -> Resultado:
     """Cruza as bases em cada Data-base comum às duas; os totais são os da mais recente.
 
     As Linhas rejeitadas, que a leitura já tirou das bases, só passam para o Resultado, com a base.
+
+    `datas_a` e `datas_b` são as Datas do arquivo, com as linhas rejeitadas pelo Valor (a Data-base é a mesma para
+    todos os Batimentos); sem elas, valem as Datas da base.
 
     Antes, a Preparação tira as linhas sem Chave e soma as de mesma Chave e Data-base.
     Junção completa pela Chave dentro de cada Data-base; Diferença = A − B, com o lado que falta valendo 0.
     Uma Chave tem Diferença quando |Diferença| > Tolerância.
     """
     # Uma Data-base existe numa base se ela tem qualquer linha nela, com ou sem Chave
-    datas_a, datas_b = set(base_a["Data"]), set(base_b["Data"])
+    datas_a, datas_b = set(base_a["Data"] if datas_a is None else datas_a), set(base_b["Data"] if datas_b is None else datas_b)
     base_a, sem_chave_a = _preparar(base_a)
     base_b, sem_chave_b = _preparar(base_b)
     comuns = sorted(datas_a & datas_b)

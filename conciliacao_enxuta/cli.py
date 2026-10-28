@@ -30,7 +30,10 @@ def conciliar_batimentos(base_a: Path, base_b: Path, tolerancia: int) -> tuple[l
     avisos += [f"{lida.coluna} só na Base B: não conciliado" for chave, lida in lidas_b.items() if chave not in lidas_a]
     resultados = [
         replace(
-            conciliar(lidas_a[c].base, lidas_b[c].base, tolerancia, lidas_a[c].rejeitadas, lidas_b[c].rejeitadas),
+            conciliar(
+                lidas_a[c].base, lidas_b[c].base, tolerancia,
+                lidas_a[c].rejeitadas, lidas_b[c].rejeitadas, lidas_a[c].datas, lidas_b[c].datas,
+            ),
             batimento=lidas_a[c].nome,
         )
         for c in comuns
