@@ -159,6 +159,7 @@ O que o Excel não dá de graça e a ferramenta entrega: o cruzamento pela Chave
 - **Tolerância**, na GUI e na CLI: lida no formato brasileiro, com as mesmas regras de separador do Valor (`1.000` é R$ 1.000,00, `0,50` é R$ 0,50). Uma Tolerância que não vira número, negativa ou grande demais dá uma mensagem simples. Arredonda para centavos como o Valor, com o meio para longe do zero (`0,125` é R$ 0,13).
 - **CLI:** `python -m conciliacao_enxuta conciliar BASE_A BASE_B [--tolerancia 1,00] [--saida PASTA]`. Imprime o caminho dos dois arquivos. Os erros saem em mensagem simples, sem traceback na tela, inclusive o inesperado.
 - **Autoteste:** com `CONCILIACAO_AUTOTESTE=1`, a GUI monta escondida, fecha sozinha e sai com 0 (ou 1, se falhar).
+- **Executável:** o `gerar_exe.bat` gera com o PyInstaller uma pasta `dist\ConciliacaoEnxuta` com o `ConciliacaoEnxuta.exe`, que abre a janela, e a pasta `_internal`. É uma pasta, e não um arquivo só, para o `.exe` abrir rápido. O passo a passo está no `README.md`.
 
 **Técnico:** Polars para os dados, openpyxl para o `.xlsx` e os gráficos do Excel, e o HTML montado com a biblioteca padrão. Dinheiro em centavos `Int64` até o Excel e o HTML. Nada é importado do pacote do projeto grande.
 
@@ -218,7 +219,6 @@ Origem: `GRILL.md`, decisões 35 a 41. Histórias 59 a 66.
 - No Casa com linha sem Chave: combinar várias linhas para zerar uma Chave, desempatar pelos Atributos, mostrar o número da linha no arquivo e juntar a linha à Chave para zerar a Diferença.
 - Linhas sem Chave na aba de operações, uma a uma ou agrupadas.
 - Corrigir ou adivinhar o Valor ou a Data de uma Linha rejeitada.
-- O `.exe`, que fica para depois.
 
 ## Notas
 
