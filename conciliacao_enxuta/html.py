@@ -1,7 +1,9 @@
 """Resultado → `.html` com o Resumo do Excel, num arquivo só e sem nada buscado na internet.
 
 O único script desenha o gráfico da Diferença no tempo, com período e zoom, e, com mais de um Batimento, faz o
-filtro. A Tolerância, as linhas sem Chave e as Linhas rejeitadas ficam só no Excel.
+filtro. A Tolerância, as linhas sem Chave e as Linhas rejeitadas ficam só no Excel. Só o HTML tem a frase-resposta
+no topo, o gráfico Por Tipo do Erro, os reais com `R$` abreviados e as partes da diferença e do valor nos Atributos
+Problemáticos: é o Resumo para quem não é analista.
 
 Este módulo e o `excel` são os únicos lugares onde os centavos viram reais.
 """
@@ -18,10 +20,10 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from conciliacao_enxuta.cruzamento import Resultado
 from conciliacao_enxuta.excel import (
     LIMITE_DE_LINHAS,
+    NOTA_POR_TIPO,
     TITULO_GRAFICO_DA_IDADE,
     TITULO_GRAFICO_DO_HISTORICO,
     TITULO_PROBLEMATICOS,
-    TITULOS_POR_ATRIBUTO,
     avisos,
     milhar,
     quadro_do_resumo,
@@ -49,6 +51,9 @@ body { font-family: "Source Sans 3", "Source Sans Pro", "Segoe UI", system-ui, -
   color: var(--texto); background: var(--superficie); -webkit-font-smoothing: antialiased; }
 h1, h2, .valor, th { font-family: "Exo 2", "Segoe UI", system-ui, sans-serif; }
 h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; margin: 0; }
+.frase { font-family: "Exo 2", "Segoe UI", system-ui, sans-serif; font-size: 22px; font-weight: 600; line-height: 1.3;
+  margin: 0 0 20px; }
+.nota { margin: 4px 0 0; font-size: 15px; color: var(--texto-2); }
 h2 { font-size: 19px; font-weight: 600; margin: 40px 0 12px; }
 .topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
   margin-bottom: 24px; }
@@ -154,6 +159,15 @@ GRAFICO = r"""
     var r = Math.abs(c) % 100;
     return (c < 0 ? "-" : "") + milhar(Math.floor(Math.abs(c) / 100)) + "," + (r < 10 ? "0" : "") + r;
   }
+  function reaisCurtos(c) {  // como `reais_curtos` do Python: R$ 705,42, R$ 4,2 mil, R$ 688,3 mi, R$ 1,1 bi
+    var a = Math.abs(c), sinal = c < 0 ? "-" : "", escalas = [[1e4, " mil"], [1e7, " mi"], [1e10, " bi"]], d, i;
+    if (a < 100000) return sinal + "R$ " + reais(a);
+    for (i = 0; i < escalas.length; i++) {  // décimos da unidade, com o meio para longe do zero
+      d = Math.round(a / escalas[i][0]);
+      if (d < 10000 || i === escalas.length - 1) break;
+    }
+    return sinal + "R$ " + milhar(Math.floor(d / 10)) + "," + (d % 10) + escalas[i][1];
+  }
   function curto(c) {  // 1,25 bi, 350 mi, 12 mil: o eixo cabe sem perder a ordem de grandeza
     var v = c / 100, escalas = [[1e9, " bi"], [1e6, " mi"], [1e3, " mil"], [1, ""]];
     for (var i = 0; i < escalas.length - 1 && v < escalas[i][0]; i++);
@@ -226,7 +240,7 @@ GRAFICO = r"""
       var ultimo = vis[n - 1];  // o valor da última Data-base do período, acima do seu ponto
       svg.push('<circle class="ponto" cx="' + x(n - 1) + '" cy="' + y(ultimo[1]) + '" r="4.5"/>');
       svg.push('<text class="v" x="' + Math.min(x(n - 1), largura - dir) + '" y="' + (y(ultimo[1]) - 12) +
-        '" text-anchor="' + (n > 1 ? "end" : "middle") + '">' + reais(ultimo[1]) + "</text>");
+        '" text-anchor="' + (n > 1 ? "end" : "middle") + '">' + reaisCurtos(ultimo[1]) + "</text>");
       svg.push('<rect class="selecao" y="' + topo + '" height="' + (base - topo) + '" visibility="hidden"/>');
       svg.push('<line class="mira" y1="' + topo + '" y2="' + base + '" visibility="hidden"/>');
       svg.push('<circle class="ponto foco" r="5.5" visibility="hidden"/>');
@@ -250,7 +264,7 @@ GRAFICO = r"""
       var p = pontos[ini + i], cx = geo.x(i), cy = geo.y(p[1]);
       marca("mira", {x1: cx, x2: cx, visibility: "visible"});
       marca("foco", {cx: cx, cy: cy, visibility: "visible"});
-      dica.innerHTML = "<span>" + data(p[0]) + "</span><strong>" + reais(p[1]) + "</strong>";
+      dica.innerHTML = "<span>" + data(p[0]) + "</span><strong>" + reaisCurtos(p[1]) + "</strong>";
       dica.hidden = false;
       dica.style.left = Math.min(Math.max(cx - dica.offsetWidth / 2, 0), geo.largura - dica.offsetWidth) + "px";
       dica.style.top = Math.max(cy - dica.offsetHeight - 16, 0) + "px";
@@ -313,6 +327,10 @@ GRAFICO = r"""
 PERIODOS = ((30, "1 mês"), (90, "3 meses"), (180, "6 meses"), (365, "1 ano"))
 
 
+TITULO_GRAFICO_POR_TIPO = "Diferença absoluta por Tipo do Erro"
+TITULOS_PROBLEMATICOS = ("Atributo", "Valor", "Diferença absoluta", "% da diferença", "% do valor")
+COLUNA_DOS_DADOS = "Diferença absoluta (R$)"  # nas tabelas dos dados dos gráficos, com o valor exato
+
 # Onde cada linha do quadro fica no painel (a Tolerância fica só no Excel): a Data-base em cima, os totais no meio e, embaixo, em
 # destaque, a Diferença absoluta e as Chaves com Diferença
 _LUGAR_NO_PAINEL = {
@@ -356,15 +374,31 @@ def gravar_html(resultados: list[Resultado], pasta: str | Path, limite: int = LI
 
 
 def _resumo(resultado: Resultado, limite: int, total_de_operacoes: int) -> str:
-    """O Resumo de um Batimento: o quadro, os avisos, os Atributos Problemáticos e os dois gráficos."""
-    partes = ['<div class="painel">']
+    """O Resumo de um Batimento: a frase-resposta, o quadro, os avisos, o Tipo do Erro, os Atributos Problemáticos
+    e os dois gráficos da Diferença."""
+    partes = []
+    if resultado.por_tipo.height:  # o Tipo do Erro que mais explica a Diferença absoluta, antes dos números
+        tipo, chaves, absoluta = resultado.por_tipo.row(0)
+        partes.append(
+            f'<p class="frase">{escape(tipo)} explica {_porcento(absoluta / resultado.diferenca_absoluta)} da '
+            f"Diferença absoluta, em {_chaves(chaves)}.</p>"
+        )
+    em_reais = {
+        "Total A": resultado.total_a,
+        "Total B": resultado.total_b,
+        "Diferença total": resultado.diferenca_total,
+        "Diferença absoluta": resultado.diferenca_absoluta,
+    }
+    partes.append('<div class="painel">')
     for rotulo, _, _, texto in quadro_do_resumo(resultado):
         if rotulo not in _LUGAR_NO_PAINEL:
             continue
+        if rotulo in em_reais:
+            texto = reais_curtos(em_reais[rotulo])
         valor = f'<span class="valor">{escape(texto)}</span>'
         if rotulo == "Chaves com Diferença" and resultado.chaves:  # e, ao lado, quanto são de todas as Chaves
-            fracao = f"{_percentual(resultado.chaves_com_diferenca / resultado.chaves)}%".replace(".", ",")
-            total = f"{milhar(resultado.chaves)} {'Chave' if resultado.chaves == 1 else 'Chaves'}"
+            fracao = _porcento(resultado.chaves_com_diferenca / resultado.chaves)
+            total = _chaves(resultado.chaves)
             valor = (
                 f'<span class="com-parte">{valor}<span class="parte"><span class="fracao">{fracao}</span>'
                 f'<span class="de">das {total}</span></span></span>'
@@ -378,21 +412,56 @@ def _resumo(resultado: Resultado, limite: int, total_de_operacoes: int) -> str:
         for aviso in avisos(resultado, limite, total_de_operacoes, rejeitadas=False)
     ]
 
-    # Os Atributos Problemáticos; sem Atributo acima do peso, a tabela não aparece
+    # Quanto cada Tipo do Erro explica; sem Chave com Diferença, nada
+    if resultado.por_tipo.height:
+        tipos = [(f"{tipo} ({_chaves(chaves)})", absoluta) for tipo, chaves, absoluta in resultado.por_tipo.iter_rows()]
+        partes.append(_grafico_de_barras(TITULO_GRAFICO_POR_TIPO, "Tipo do Erro", tipos, NOTA_POR_TIPO))
+
+    # Os Atributos Problemáticos, com a parte da diferença e a parte do valor de cada um no lugar da Diferença acima
+    # do peso, que é a primeira menos a segunda; sem Atributo acima do peso, a tabela não aparece
     if resultado.atributos_problematicos.height:
+        das_chaves = resultado.operacoes["Diferenca"].abs().sum()  # a Diferença absoluta só das Chaves
         partes.append(f"<h2>{escape(TITULO_PROBLEMATICOS)}</h2>")
-        partes.append(_cabecalho(TITULOS_POR_ATRIBUTO))
+        partes.append(_cabecalho(TITULOS_PROBLEMATICOS))
         for atributo, valor, absoluta, acima_do_peso in resultado.atributos_problematicos.iter_rows():
-            percentual = f"{_percentual(acima_do_peso)}%".replace(".", ",")
+            da_diferenca = absoluta / das_chaves
             partes.append(
-                f'<tr><td>{_do_arquivo(atributo)}</td><td>{_do_arquivo(valor)}</td><td class="n">{reais(absoluta)}</td>'
-                f'<td class="n">{percentual}</td></tr>'
+                f"<tr><td>{_do_arquivo(atributo)}</td><td>{_do_arquivo(valor)}</td>"
+                f'<td class="n">{reais_curtos(absoluta)}</td><td class="n">{_porcento(da_diferenca)}</td>'
+                f'<td class="n">{_porcento(da_diferenca - acima_do_peso)}</td></tr>'
             )
         partes.append("</table>")
 
-    partes.append(_grafico_de_barras(resultado))
+    idade = [(rotulo_da_faixa(faixa, chaves, linhas), absoluta) for faixa, chaves, linhas, absoluta in resultado.por_idade]
+    partes.append(_grafico_de_barras(TITULO_GRAFICO_DA_IDADE, "Faixa", idade))
     partes.append(_grafico_de_linha(resultado))
     return "\n".join(partes)
+
+
+def reais_curtos(centavos: int) -> str:
+    """Centavos → reais com `R$`, abreviados para ler de longe: `R$ 705,42` abaixo de R$ 1.000, senão uma casa e
+    `mil`, `mi` ou `bi` (`R$ 688,3 mi`), com o meio para longe do zero; `-R$ 416,4 mi` no negativo."""
+    valor = Decimal(abs(centavos)) / 100
+    if valor < 1000:
+        texto = reais(abs(centavos))
+    else:
+        # A primeira unidade em que o arredondado fica abaixo de 1.000: R$ 999.950,00 é R$ 1,0 mi, não 1.000,0 mil
+        for expoente, unidade in ((3, "mil"), (6, "mi"), (9, "bi")):
+            decimos = int((valor / Decimal(10) ** expoente).quantize(Decimal("0.1"), ROUND_HALF_UP) * 10)
+            if decimos < 10_000:
+                break
+        texto = f"{milhar(decimos // 10)},{decimos % 10} {unidade}"
+    return f"{'-' if centavos < 0 else ''}R$ {texto}"
+
+
+def _porcento(fracao: float) -> str:
+    """A fração em texto, com 2 casas, como o Excel mostra `0.00%`: `90,63%`."""
+    return f"{_percentual(fracao)}%".replace(".", ",")
+
+
+def _chaves(quantas: int) -> str:
+    """`1 Chave` ou `1.234 Chaves`."""
+    return f"{milhar(quantas)} {'Chave' if quantas == 1 else 'Chaves'}"
 
 
 def _do_arquivo(texto: str) -> str:
@@ -416,20 +485,17 @@ def _dados_do_grafico(titulos: tuple[str, str], linhas: list[tuple[str, str]]) -
     return f"<details><summary>Dados do gráfico</summary>{_cabecalho(titulos)}{corpo}</table></details>"
 
 
-def _grafico_de_barras(resultado: Resultado) -> str:
-    """A Diferença absoluta por faixa de Idade, em barras deitadas, com os rótulos das faixas como no Excel."""
+def _grafico_de_barras(titulo: str, coluna: str, barras: list[tuple[str, int]], nota: str | None = None) -> str:
+    """A Diferença absoluta de cada linha de `barras` (rótulo, centavos), em barras deitadas, com o `titulo`, a
+    `nota` embaixo, se houver, e os dados numa tabela cuja primeira coluna se chama `coluna`."""
     largura, linha, espessura, maxima = 340, 44, 16, 230  # a barra sai de x = 1, na linha de base
-    faixas = [
-        (rotulo_da_faixa(faixa, chaves, sem_chave), absoluta)
-        for faixa, chaves, sem_chave, absoluta in resultado.por_idade
-    ]
-    maior = max((absoluta for _, absoluta in faixas), default=0) or 1
-    altura = len(faixas) * linha
-    titulo = escape(TITULO_GRAFICO_DA_IDADE)
+    maior = max((absoluta for _, absoluta in barras), default=0) or 1
+    altura = len(barras) * linha
+    titulo = escape(titulo)
     svg = [f'<svg class="idade" viewBox="0 0 {largura} {altura}" width="100%" role="img" aria-label="{titulo}">']
-    for i, (rotulo, absoluta) in enumerate(faixas):
+    for i, (rotulo, absoluta) in enumerate(barras):
         y, w = i * linha, round(absoluta / maior * maxima)
-        dica = escape(f"{rotulo}: {reais(absoluta)}")
+        dica = escape(f"{rotulo}: {reais_curtos(absoluta)}")
         svg.append(f'<g><title>{dica}</title><rect class="alvo" x="0" y="{y}" width="{largura}" height="{linha}"/>')
         svg.append(f'<text x="0" y="{y + 14}">{escape(rotulo)}</text>')
         if w:
@@ -438,9 +504,11 @@ def _grafico_de_barras(resultado: Resultado) -> str:
                 f'<path class="barra" data-h="{espessura}" d="M1,{y + 22} H{1 + w - r} a{r},{r} 0 0 1 {r},{r} '
                 f'V{y + 22 + espessura - r} a{r},{r} 0 0 1 -{r},{r} H1 Z"/>'
             )
-        svg.append(f'<text class="v" x="{w + 7}" y="{y + 35}">{reais(absoluta)}</text></g>')
+        svg.append(f'<text class="v" x="{w + 7}" y="{y + 35}">{reais_curtos(absoluta)}</text></g>')
     svg.append(f'<line class="grade" x1="0.5" y1="0" x2="0.5" y2="{altura}"/></svg>')
-    dados = _dados_do_grafico(("Faixa", "Diferença absoluta"), [(r, reais(a)) for r, a in faixas])
+    if nota:
+        svg.append(f'<p class="nota">{escape(nota)}</p>')
+    dados = _dados_do_grafico((coluna, COLUNA_DOS_DADOS), [(r, reais(a)) for r, a in barras])
     return f"<h2>{titulo}</h2>\n" + "\n".join(svg) + "\n" + dados
 
 
@@ -461,7 +529,7 @@ def _grafico_de_linha(resultado: Resultado) -> str:
             '<button type="button" data-dias="0" aria-pressed="true">Tudo</button></div>'
         )
     ajuda = ' <span class="ajuda">Arraste sobre o gráfico para ampliar um período.</span>' if len(historico) > 1 else ""
-    dados = _dados_do_grafico(("Data-base", "Diferença absoluta"), [(f"{d:%d/%m/%Y}", reais(a)) for d, a in historico])
+    dados = _dados_do_grafico(("Data-base", COLUNA_DOS_DADOS), [(f"{d:%d/%m/%Y}", reais(a)) for d, a in historico])
     return (
         f'<div class="historico" data-pontos="{pontos}">\n'
         f'<div class="cabeca"><h2>{titulo}</h2>{botoes}</div>\n'

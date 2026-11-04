@@ -2,10 +2,12 @@
 
 import json
 from dataclasses import replace
+from decimal import ROUND_HALF_UP, Decimal
 from html.parser import HTMLParser
 from pathlib import Path
 
 import openpyxl
+import pytest
 
 from conciliacao_enxuta.cli import main
 from conciliacao_enxuta.cruzamento import TOLERANCIA_PADRAO, conciliar
@@ -60,6 +62,27 @@ def reais(centavos: int) -> str:
     return f"-{texto}" if centavos < 0 else texto
 
 
+def curto(centavos: int) -> str:
+    """Centavos → `R$ 688,3 mi`, como o `.html` mostra: centavos abaixo de R$ 1.000, senão uma casa e mil, mi ou bi."""
+    valor = Decimal(abs(centavos)) / 100
+    if valor < 1000:
+        texto = f"{valor:,.2f}"
+    else:
+        for expoente, nome in ((3, "mil"), (6, "mi"), (9, "bi")):
+            arredondado = (valor / Decimal(10) ** expoente).quantize(Decimal("0.1"), ROUND_HALF_UP)
+            if arredondado < 1000 or nome == "bi":
+                texto = f"{arredondado:,.1f} {nome}"
+                break
+    texto = texto.replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{'-' if centavos < 0 else ''}R$ {texto}"
+
+
+def parte(numerador, denominador) -> str:
+    """A fração em %, com 2 casas e o meio para cima, como o Excel mostra `0.00%`."""
+    fracao = (Decimal(numerador) * 100 / Decimal(denominador)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    return f"{fracao}%".replace(".", ",")
+
+
 def conciliar_exemplo(tmp_path, capsys):
     gabarito = gerar_bases_exemplo(tmp_path)
     assert main(["conciliar", str(gabarito.base_a), str(gabarito.base_b)]) == 0
@@ -74,16 +97,16 @@ def test_cli_grava_o_html_ao_lado_do_xlsx_e_imprime_os_dois_caminhos(tmp_path, c
     assert (tmp_path / f"{nome}.html").exists()
 
 
-def test_html_traz_o_quadro_do_resumo_com_os_totais_do_gabarito_em_reais(tmp_path, capsys):
+def test_html_traz_o_quadro_do_resumo_com_os_totais_do_gabarito_em_reais_abreviados(tmp_path, capsys):
     gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
 
     textos = ler_html(linhas[1]).textos
     quadro = {
         "Data-base mais recente": f"{gabarito.data_base:%d/%m/%Y}",
-        "Total A": reais(gabarito.total_a),
-        "Total B": reais(gabarito.total_b),
-        "Diferença total": reais(gabarito.diferenca_total),
-        "Diferença absoluta": reais(gabarito.diferenca_absoluta),
+        "Total A": curto(gabarito.total_a),
+        "Total B": curto(gabarito.total_b),
+        "Diferença total": curto(gabarito.diferenca_total),
+        "Diferença absoluta": curto(gabarito.diferenca_absoluta),
         "Chaves com Diferença": f"{gabarito.chaves_com_diferenca:,}".replace(",", "."),
     }
     for rotulo, valor in quadro.items():
@@ -158,11 +181,13 @@ def test_html_traz_os_atributos_problematicos_do_gabarito_depois_dos_avisos(tmp_
 
     textos = ler_html(linhas[1]).textos
     titulo = "Atributos Problemáticos"
-    esperado = ["Atributo", "Valor", "Diferença absoluta", "Concentração desproporcional da diferença"]
+    esperado = ["Atributo", "Valor", "Diferença absoluta", "% da diferença", "% do valor"]
+    das_chaves = sum(abs(operacao[3]) for operacao in gabarito.operacoes)
     for atributo, valor, absoluta, acima in gabarito.por_atributo[:5]:
-        esperado += [atributo, valor, reais(absoluta), f"{acima * 100:.2f}%".replace(".", ",")]
+        do_valor = Decimal(absoluta) / das_chaves - Decimal(f"{acima:.15g}")
+        esperado += [atributo, valor, curto(absoluta), parte(absoluta, das_chaves), parte(do_valor, 1)]
     assert depois(textos, titulo, len(esperado)) == esperado
-    assert textos[textos.index(titulo) + 5 : textos.index(titulo) + 7] == ["Carteira", "Legado"]
+    assert textos[textos.index(titulo) + 6 : textos.index(titulo) + 8] == ["Carteira", "Legado"]
     assert textos.index(titulo) > textos.index("Chaves com Diferença")
 
 
@@ -190,7 +215,8 @@ def test_html_traz_os_dois_graficos_em_svg_com_os_rotulos_da_idade_iguais_aos_do
     assert textos.index("Atributos Problemáticos") < textos.index(barras) < textos.index(no_tempo)
     inicio = textos.index(barras)
     assert [t for t in textos[inicio : textos.index(no_tempo)] if t in rotulos_do_excel] == rotulos_do_excel
-    assert [tag for tag, _ in leitor.tags].count("svg") == 2  # as barras, uma por Batimento; a linha o script desenha
+    # As barras do Tipo do Erro e da Idade, de cada Batimento; a linha o script desenha
+    assert [tag for tag, _ in leitor.tags].count("svg") == 4
     # O gráfico no tempo leva um ponto por Data-base comum
     pontos = next(attrs["data-pontos"] for tag, attrs in leitor.tags if attrs.get("class") == "historico")
     assert len(json.loads(pontos)) == len(gabarito.historico)
@@ -205,8 +231,8 @@ def conciliar_csv(tmp_path, capsys, linhas_a: str, linhas_b: str):
     return capsys.readouterr().out.splitlines()
 
 
-def test_o_percentual_do_html_arredonda_como_o_excel(tmp_path, capsys):
-    # Moeda X: 100% da Diferença absoluta e 3/32 do peso, 90,625% acima do peso; o Excel mostra 90,63%
+def test_as_partes_da_diferenca_e_do_valor_arredondam_como_o_excel(tmp_path, capsys):
+    # Moeda X: 100% da Diferença absoluta e 3/32 do peso (9,375%), 90,625% acima do peso; o Excel mostra 90,63%
     xlsx, html = conciliar_csv(
         tmp_path, capsys,
         "Chave,Data,Valor,Moeda\n1,2026-09-30,0.03,X\n2,2026-09-30,0.29,Y\n",
@@ -217,7 +243,7 @@ def test_o_percentual_do_html_arredonda_como_o_excel(tmp_path, capsys):
         linha[3] for linha in openpyxl.load_workbook(xlsx)["Resumo"].iter_rows() if linha[1].value == "X"
     )
     assert (celula.value, celula.number_format) == (0.90625, "0.00%")
-    assert depois(ler_html(html).textos, "X", 2) == ["10,00", "90,63%"]
+    assert depois(ler_html(html).textos, "X", 3) == ["R$ 10,00", "100,00%", "9,38%"]
 
 
 def grafico_no_tempo(html) -> tuple[list, list[tuple[str, str]], list[str]]:
@@ -306,10 +332,10 @@ def test_com_varios_batimentos_o_html_traz_a_lista_e_o_resumo_de_cada_um_com_so_
     indices = [i for i, t in enumerate(leitor.textos) if t == "Total A"]
     esperado = [(gabarito.total_a, gabarito.total_b), (gabarito.juros.total_a, gabarito.juros.total_b)]
     for i, (total_a, total_b) in zip(indices, esperado):
-        assert leitor.textos[i + 1] == reais(total_a)
-        assert leitor.textos[leitor.textos.index("Total B", i) + 1] == reais(total_b)
+        assert leitor.textos[i + 1] == curto(total_a)
+        assert leitor.textos[leitor.textos.index("Total B", i) + 1] == curto(total_b)
     assert [t for t in leitor.textos if t == "Atributos Problemáticos"] == ["Atributos Problemáticos"] * 2
-    assert reais(gabarito.juros.diferenca_absoluta) in leitor.textos
+    assert curto(gabarito.juros.diferenca_absoluta) in leitor.textos
 
 
 def test_com_varios_batimentos_o_unico_script_e_o_filtro_e_nada_aponta_para_fora(tmp_path, capsys):
@@ -359,9 +385,10 @@ def test_html_traz_a_tabela_dos_dados_dos_graficos_e_a_dica_de_cada_barra_e_de_c
     )
 
     leitor = ler_html(html)
-    assert leitor.dados.count("Diferença absoluta") == 2  # um cabeçalho por tabela
+    assert leitor.dados.count("Diferença absoluta (R$)") == 3  # um cabeçalho por tabela, com o valor exato
     assert depois(leitor.dados, "Data-base", 5)[1:] == ["29/09/2026", "2,50", "30/09/2026", "5,00"]
-    assert len(leitor.dicas) == 5  # as 5 faixas; as dicas do gráfico no tempo o script mostra
+    # Um Tipo e as 5 faixas, com o valor abreviado; as dicas do gráfico no tempo o script mostra
+    assert len(leitor.dicas) == 6 and "Sem padrão (1 Chave): R$ 5,00" in leitor.dicas
 
 
 def test_a_barra_e_arredondada_so_na_ponta_e_sem_borda(
@@ -375,7 +402,7 @@ def test_a_barra_e_arredondada_so_na_ponta_e_sem_borda(
 
     leitor = ler_html(html)
     marcas = {classe: [a for t, a in leitor.tags if a.get("class") == classe] for classe in ("barra",)}
-    assert len(marcas["barra"]) == 1  # só a faixa com Diferença tem barra visível
+    assert len(marcas["barra"]) == 2  # o Tipo e a faixa com Diferença; as faixas vazias não têm barra
     # A barra é um caminho com 4px arredondados na ponta, e 24px de espessura no máximo
     assert " a4,4 " in marcas["barra"][0]["d"] and 0 < float(marcas["barra"][0]["data-h"]) <= 24
     assert all("stroke" not in a for a in marcas["barra"])
@@ -385,7 +412,75 @@ def test_o_svg_escala_com_a_largura_da_tela_e_cabe_em_375px(tmp_path, capsys):
     _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
 
     svgs = [a for tag, a in ler_html(html).tags if tag == "svg"]
-    assert len(svgs) == 1  # o das barras; o gráfico no tempo é desenhado na largura da tela
+    assert len(svgs) == 2  # os das barras; o gráfico no tempo é desenhado na largura da tela
     for a in svgs:
         largura = float(a["viewbox"].split()[2])
         assert a["width"] == "100%" and largura <= 375 - 2 * 16
+
+
+def test_o_html_comeca_pela_frase_com_o_tipo_do_erro_que_mais_explica_a_diferenca(tmp_path, capsys):
+    gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
+
+    textos = ler_html(linhas[1]).textos
+    tipo, chaves, absoluta = gabarito.por_tipo[0]
+    frase = f"{tipo} explica {parte(absoluta, gabarito.diferenca_absoluta)} da Diferença absoluta, em {chaves} Chaves."
+    assert textos.index(frase) < textos.index("Data-base mais recente")
+
+
+def test_a_frase_diz_1_chave_no_singular_e_some_sem_chave_com_diferenca(tmp_path, capsys):
+    _, html = conciliar_csv(tmp_path, capsys, *UM_BATIMENTO)
+    assert "Sem padrão explica 100,00% da Diferença absoluta, em 1 Chave." in ler_html(html).textos
+
+    _, html = conciliar_csv(
+        tmp_path, capsys, "Chave,Data,Valor\n1,2026-09-30,10.00\n", "Chave,Data,Valor\n1,2026-09-30,10.00\n"
+    )
+    textos = ler_html(html).textos
+    assert not any("explica" in t for t in textos)
+    assert "Diferença absoluta por Tipo do Erro" not in textos
+
+
+def test_o_grafico_por_tipo_do_erro_vem_depois_do_quadro_e_antes_dos_atributos_problematicos(tmp_path, capsys):
+    gabarito, linhas = conciliar_exemplo(tmp_path, capsys)
+
+    textos = ler_html(linhas[1]).textos
+    inicio, fim = textos.index("Diferença absoluta por Tipo do Erro"), textos.index("Atributos Problemáticos")
+    assert textos.index("Chaves com Diferença") < inicio < fim
+    rotulos = [f"{tipo} ({chaves} {'Chave' if chaves == 1 else 'Chaves'})" for tipo, chaves, _ in gabarito.por_tipo]
+    assert [t for t in textos[inicio:fim] if t in rotulos] == rotulos
+    assert "Uma Chave pode contar em mais de um Tipo do Erro." in textos[inicio:fim]
+    assert [t for t in textos[inicio:fim] if t.startswith("R$ ")][0] == curto(gabarito.por_tipo[0][2])
+
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"),
+    [
+        ("1.01", "R$ 1,01"),  # acima da Tolerância de R$ 1,00, para a Diferença absoluta não ser zero
+        ("999.99", "R$ 999,99"),
+        ("1000.00", "R$ 1,0 mil"),
+        ("1049.99", "R$ 1,0 mil"),
+        ("1050.00", "R$ 1,1 mil"),
+        ("999949.99", "R$ 999,9 mil"),
+        ("999950.00", "R$ 1,0 mi"),
+        ("688281380.19", "R$ 688,3 mi"),
+        ("1234500000000.00", "R$ 1.234,5 bi"),
+    ],
+)
+def test_os_reais_do_quadro_vao_com_rs_e_abreviados(tmp_path, capsys, valor, esperado):
+    _, html = conciliar_csv(
+        tmp_path, capsys, f"Chave,Data,Valor\n1,2026-09-30,{valor}\n", "Chave,Data,Valor\n1,2026-09-30,0\n"
+    )
+
+    textos = ler_html(html).textos
+    assert curto(int(Decimal(valor) * 100)) == esperado
+    assert depois(textos, "Total A", 1) == [esperado] and depois(textos, "Total B", 1) == ["R$ 0,00"]
+    assert depois(textos, "Diferença absoluta", 1) == [esperado]
+
+
+def test_o_negativo_leva_o_sinal_antes_do_rs_e_os_dados_do_grafico_ficam_exatos(tmp_path, capsys):
+    _, html = conciliar_csv(
+        tmp_path, capsys, "Chave,Data,Valor\n1,2026-09-30,0\n", "Chave,Data,Valor\n1,2026-09-30,416385257.37\n"
+    )
+
+    leitor = ler_html(html)
+    assert depois(leitor.textos, "Diferença total", 1) == ["-R$ 416,4 mi"]
+    assert "416.385.257,37" in leitor.dados
