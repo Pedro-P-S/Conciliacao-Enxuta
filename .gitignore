@@ -3,3 +3,4 @@ exemplo/
 __pycache__/
 *.pyc
 .pytest_cache/
+Modulo3_*.pdf
